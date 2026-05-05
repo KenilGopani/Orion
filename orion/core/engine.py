@@ -1,0 +1,258 @@
+from __future__ import annotations
+
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+from orion.core.approvals import ApprovalGate
+from orion.core.events import EventRecorder
+from orion.core.models import (
+    StepStatus,
+    Task,
+    TaskStatus,
+    TaskStep,
+    ToolCall,
+    ToolResult,
+    ToolSafetyLevel,
+    utc_now,
+)
+from orion.core.registry import ToolDefinition, ToolRegistry
+from orion.core.store import InMemoryTaskStore
+
+
+class EchoToolInput(BaseModel):
+    message: str
+
+
+class MockSendEmailInput(BaseModel):
+    to: str
+    subject: str
+    body: str
+
+
+def default_registry() -> ToolRegistry:
+    registry = ToolRegistry()
+
+    def echo_handler(payload: EchoToolInput) -> dict[str, Any]:
+        return {"echoed": payload.message}
+
+    def mock_send_email_handler(payload: MockSendEmailInput) -> dict[str, Any]:
+        return {
+            "status": "queued",
+            "to": payload.to,
+            "subject": payload.subject,
+        }
+
+    registry.register(
+        ToolDefinition(
+            name="echo_tool",
+            description="Echoes the message back for testing safe execution",
+            input_model=EchoToolInput,
+            handler=echo_handler,
+            safety_level=ToolSafetyLevel.READ_ONLY,
+        )
+    )
+    registry.register(
+        ToolDefinition(
+            name="mock_send_email",
+            description="Mock email sender used to demonstrate approval flow",
+            input_model=MockSendEmailInput,
+            handler=mock_send_email_handler,
+            safety_level=ToolSafetyLevel.EXTERNAL_SIDE_EFFECT,
+        )
+    )
+    return registry
+
+
+class PlannedStep(BaseModel):
+    name: str
+    description: str
+    tool_name: str
+    tool_args: dict[str, Any] = Field(default_factory=dict)
+
+
+class ExecutionEngine:
+    def __init__(
+        self,
+        *,
+        store: InMemoryTaskStore,
+        events: EventRecorder,
+        registry: ToolRegistry,
+        approval_gate: ApprovalGate,
+    ) -> None:
+        self._store = store
+        self._events = events
+        self._registry = registry
+        self._approval_gate = approval_gate
+
+    def create_task(self, user_intent: str) -> Task:
+        task = self._store.create_task(user_intent=user_intent)
+        self._events.record(task.id, "task_created", {"user_intent": user_intent})
+        self._run(task.id)
+        updated = self._store.get_task(task.id)
+        if not updated:
+            raise RuntimeError("Task disappeared after execution")
+        return updated
+
+    def resume_task_after_approval(self, task_id: str, approved_by: str) -> Task:
+        task = self._must_get_task(task_id)
+        if task.status != TaskStatus.AWAITING_APPROVAL:
+            raise ValueError(f"Task {task_id} is not awaiting approval")
+
+        approval = self._approval_gate.grant_latest_for_task(task_id=task_id, approved_by=approved_by)
+        step = self._get_step(task_id, approval.step_id)
+        step.status = StepStatus.PENDING
+        step.updated_at = utc_now()
+        self._store.update_step(task_id, step)
+        self._events.record(
+            task_id,
+            "approval_granted",
+            {"approval_id": approval.id, "approved_by": approved_by},
+        )
+        self._run(task_id)
+        return self._must_get_task(task_id)
+
+    def _run(self, task_id: str) -> None:
+        task = self._must_get_task(task_id)
+
+        if task.status in {TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.CANCELLED}:
+            return
+
+        if not task.steps:
+            self._store.update_task_status(task_id, TaskStatus.PLANNING)
+            planned_steps = self._plan(task.user_intent)
+            for planned in planned_steps:
+                self._store.append_step(
+                    task_id,
+                    TaskStep(name=planned.name, description=planned.description),
+                )
+
+        self._store.update_task_status(task_id, TaskStatus.RUNNING)
+        self._events.record(task_id, "task_started", {"steps": len(self._must_get_task(task_id).steps)})
+
+        for step in self._must_get_task(task_id).steps:
+            if step.status == StepStatus.SUCCEEDED:
+                continue
+            if step.status == StepStatus.AWAITING_APPROVAL:
+                self._store.update_task_status(task_id, TaskStatus.AWAITING_APPROVAL)
+                return
+            self._execute_step(task_id, step)
+            latest_task = self._must_get_task(task_id)
+            if latest_task.status in {TaskStatus.AWAITING_APPROVAL, TaskStatus.FAILED}:
+                return
+
+        self._store.update_task_status(task_id, TaskStatus.SUCCEEDED)
+        self._events.record(task_id, "task_succeeded", {})
+
+    def _execute_step(self, task_id: str, step: TaskStep) -> None:
+        planned = self._planned_step_for_name(task_id, step.name)
+        tool = self._registry.get(planned.tool_name)
+
+        step.status = StepStatus.RUNNING
+        step.updated_at = utc_now()
+        self._store.update_step(task_id, step)
+        self._events.record(task_id, "step_started", {"step_id": step.id, "step_name": step.name})
+
+        step.tool_call = ToolCall(
+            tool_name=tool.name,
+            arguments=planned.tool_args,
+            safety_level=tool.safety_level,
+        )
+
+        if tool.requires_approval and not self._can_execute_risky_step(task_id, step.id):
+            step.status = StepStatus.AWAITING_APPROVAL
+            self._store.update_step(task_id, step)
+            approval = self._approval_gate.create_request(
+                task_id=task_id,
+                step=step,
+                tool_name=tool.name,
+                reason=f"Tool {tool.name} has safety level {tool.safety_level}",
+            )
+            self._store.update_task_status(task_id, TaskStatus.AWAITING_APPROVAL)
+            self._events.record(
+                task_id,
+                "approval_required",
+                {"approval_id": approval.id, "step_id": step.id, "tool_name": tool.name},
+            )
+            return
+
+        self._events.record(task_id, "tool_started", {"step_id": step.id, "tool_name": tool.name})
+
+        try:
+            validated_input = tool.input_model(**planned.tool_args)
+            output = tool.handler(validated_input)
+            step.tool_result = ToolResult(success=True, output=output)
+            step.status = StepStatus.SUCCEEDED
+            step.tool_call.finished_at = utc_now()
+            self._store.update_step(task_id, step)
+            self._events.record(
+                task_id,
+                "tool_succeeded",
+                {"step_id": step.id, "tool_name": tool.name, "output": output},
+            )
+        except Exception as exc:
+            step.status = StepStatus.FAILED
+            step.error = str(exc)
+            step.tool_result = ToolResult(success=False, error=str(exc))
+            if step.tool_call:
+                step.tool_call.finished_at = utc_now()
+            self._store.update_step(task_id, step)
+            self._store.update_task_status(task_id, TaskStatus.FAILED, error=str(exc))
+            self._events.record(
+                task_id,
+                "tool_failed",
+                {"step_id": step.id, "tool_name": tool.name, "error": str(exc)},
+            )
+            self._events.record(task_id, "task_failed", {"error": str(exc)})
+
+    def _plan(self, user_intent: str) -> list[PlannedStep]:
+        intent_lower = user_intent.lower()
+        if "email" in intent_lower or "send" in intent_lower:
+            return [
+                PlannedStep(
+                    name="send_mock_email",
+                    description="Send a mock email to demonstrate approval-gated action",
+                    tool_name="mock_send_email",
+                    tool_args={
+                        "to": "demo@example.com",
+                        "subject": "Orion Demo",
+                        "body": user_intent,
+                    },
+                )
+            ]
+        return [
+            PlannedStep(
+                name="echo_intent",
+                description="Echo the user intent to prove safe tool flow",
+                tool_name="echo_tool",
+                tool_args={"message": user_intent},
+            )
+        ]
+
+    def _planned_step_for_name(self, task_id: str, step_name: str) -> PlannedStep:
+        task = self._must_get_task(task_id)
+        planned_steps = self._plan(task.user_intent)
+        for planned in planned_steps:
+            if planned.name == step_name:
+                return planned
+        raise KeyError(f"No planned step found for {step_name}")
+
+    def _can_execute_risky_step(self, task_id: str, step_id: str) -> bool:
+        approvals = self._store.list_approval_requests(task_id)
+        for approval in reversed(approvals):
+            if approval.step_id == step_id and approval.approved_at is not None:
+                return True
+        return False
+
+    def _must_get_task(self, task_id: str) -> Task:
+        task = self._store.get_task(task_id)
+        if not task:
+            raise KeyError(f"Task {task_id} not found")
+        return task
+
+    def _get_step(self, task_id: str, step_id: str) -> TaskStep:
+        task = self._must_get_task(task_id)
+        for step in task.steps:
+            if step.id == step_id:
+                return step
+        raise KeyError(f"Step {step_id} not found for task {task_id}")
