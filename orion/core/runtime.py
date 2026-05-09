@@ -62,3 +62,41 @@ async def run_runtime_send_email(to: str, subject: str, body: str) -> Task:
             )
         ],
     )
+
+
+class OpenClawSendWhatsAppInput(BaseModel):
+    recipient: str
+    message: str
+
+
+async def _openclaw_send_whatsapp_handler(payload: OpenClawSendWhatsAppInput) -> dict[str, str]:
+    task = f"Send a WhatsApp message to {payload.recipient}: {payload.message}"
+    result = await openclaw_client.send_task(task)
+    if result["status"] != "success":
+        raise RuntimeError(result["result"])
+    return {"message": result["result"]}
+
+
+registry.register(
+    ToolDefinition(
+        name="openclaw_send_whatsapp",
+        description="Send a WhatsApp message via OpenClaw through Orion runtime",
+        input_model=OpenClawSendWhatsAppInput,
+        handler=_openclaw_send_whatsapp_handler,
+        safety_level=ToolSafetyLevel.EXTERNAL_SIDE_EFFECT,
+    )
+)
+
+
+async def run_runtime_send_whatsapp(recipient: str, message: str) -> Task:
+    return await engine.create_task_with_steps(
+        user_intent=f"WhatsApp {recipient}: {message[:80]}",
+        steps=[
+            PlannedStep(
+                name="send_whatsapp",
+                description="Send WhatsApp message through OpenClaw backend",
+                tool_name="openclaw_send_whatsapp",
+                tool_args={"recipient": recipient, "message": message},
+            )
+        ],
+    )
