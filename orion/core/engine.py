@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -85,16 +86,33 @@ class ExecutionEngine:
         self._registry = registry
         self._approval_gate = approval_gate
 
-    def create_task(self, user_intent: str) -> Task:
+    async def create_task(self, user_intent: str) -> Task:
         task = self._store.create_task(user_intent=user_intent)
         self._events.record(task.id, "task_created", {"user_intent": user_intent})
-        self._run(task.id)
+        await self._run(task.id)
         updated = self._store.get_task(task.id)
         if not updated:
             raise RuntimeError("Task disappeared after execution")
         return updated
 
-    def resume_task_after_approval(self, task_id: str, approved_by: str) -> Task:
+    async def create_task_with_steps(self, user_intent: str, steps: list[PlannedStep]) -> Task:
+        task = self._store.create_task(user_intent=user_intent)
+        self._events.record(task.id, "task_created", {"user_intent": user_intent})
+        self._store.update_task_status(task.id, TaskStatus.PLANNING)
+        for planned in steps:
+            self._store.append_step(
+                task.id,
+                TaskStep(
+                    name=planned.name,
+                    description=planned.description,
+                    planned_tool_name=planned.tool_name,
+                    planned_tool_args=planned.tool_args,
+                ),
+            )
+        await self._run(task.id)
+        return self._must_get_task(task.id)
+
+    async def resume_task_after_approval(self, task_id: str, approved_by: str) -> Task:
         task = self._must_get_task(task_id)
         if task.status != TaskStatus.AWAITING_APPROVAL:
             raise ValueError(f"Task {task_id} is not awaiting approval")
@@ -109,10 +127,10 @@ class ExecutionEngine:
             "approval_granted",
             {"approval_id": approval.id, "approved_by": approved_by},
         )
-        self._run(task_id)
+        await self._run(task_id)
         return self._must_get_task(task_id)
 
-    def _run(self, task_id: str) -> None:
+    async def _run(self, task_id: str) -> None:
         task = self._must_get_task(task_id)
 
         if task.status in {TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.CANCELLED}:
@@ -124,7 +142,12 @@ class ExecutionEngine:
             for planned in planned_steps:
                 self._store.append_step(
                     task_id,
-                    TaskStep(name=planned.name, description=planned.description),
+                    TaskStep(
+                        name=planned.name,
+                        description=planned.description,
+                        planned_tool_name=planned.tool_name,
+                        planned_tool_args=planned.tool_args,
+                    ),
                 )
 
         self._store.update_task_status(task_id, TaskStatus.RUNNING)
@@ -136,7 +159,7 @@ class ExecutionEngine:
             if step.status == StepStatus.AWAITING_APPROVAL:
                 self._store.update_task_status(task_id, TaskStatus.AWAITING_APPROVAL)
                 return
-            self._execute_step(task_id, step)
+            await self._execute_step(task_id, step)
             latest_task = self._must_get_task(task_id)
             if latest_task.status in {TaskStatus.AWAITING_APPROVAL, TaskStatus.FAILED}:
                 return
@@ -144,9 +167,10 @@ class ExecutionEngine:
         self._store.update_task_status(task_id, TaskStatus.SUCCEEDED)
         self._events.record(task_id, "task_succeeded", {})
 
-    def _execute_step(self, task_id: str, step: TaskStep) -> None:
-        planned = self._planned_step_for_name(task_id, step.name)
-        tool = self._registry.get(planned.tool_name)
+    async def _execute_step(self, task_id: str, step: TaskStep) -> None:
+        if not step.planned_tool_name:
+            raise KeyError(f"Step {step.id} has no planned tool")
+        tool = self._registry.get(step.planned_tool_name)
 
         step.status = StepStatus.RUNNING
         step.updated_at = utc_now()
@@ -155,7 +179,7 @@ class ExecutionEngine:
 
         step.tool_call = ToolCall(
             tool_name=tool.name,
-            arguments=planned.tool_args,
+            arguments=step.planned_tool_args,
             safety_level=tool.safety_level,
         )
 
@@ -179,8 +203,9 @@ class ExecutionEngine:
         self._events.record(task_id, "tool_started", {"step_id": step.id, "tool_name": tool.name})
 
         try:
-            validated_input = tool.input_model(**planned.tool_args)
-            output = tool.handler(validated_input)
+            validated_input = tool.input_model(**step.planned_tool_args)
+            maybe_output = tool.handler(validated_input)
+            output = await maybe_output if inspect.isawaitable(maybe_output) else maybe_output
             step.tool_result = ToolResult(success=True, output=output)
             step.status = StepStatus.SUCCEEDED
             step.tool_call.finished_at = utc_now()
@@ -228,14 +253,6 @@ class ExecutionEngine:
                 tool_args={"message": user_intent},
             )
         ]
-
-    def _planned_step_for_name(self, task_id: str, step_name: str) -> PlannedStep:
-        task = self._must_get_task(task_id)
-        planned_steps = self._plan(task.user_intent)
-        for planned in planned_steps:
-            if planned.name == step_name:
-                return planned
-        raise KeyError(f"No planned step found for {step_name}")
 
     def _can_execute_risky_step(self, task_id: str, step_id: str) -> bool:
         approvals = self._store.list_approval_requests(task_id)

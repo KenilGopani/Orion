@@ -58,6 +58,8 @@ class TaskStep(BaseModel):
     name: str
     description: str
     status: StepStatus = StepStatus.PENDING
+    planned_tool_name: str | None = None
+    planned_tool_args: dict[str, Any] = Field(default_factory=dict)
     tool_call: ToolCall | None = None
     tool_result: ToolResult | None = None
     error: str | None = None

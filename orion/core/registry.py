@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable
 from collections.abc import Callable
 from typing import Any
 
@@ -12,7 +13,7 @@ class ToolDefinition(BaseModel):
     name: str
     description: str
     input_model: type[BaseModel]
-    handler: Callable[[BaseModel], dict[str, Any]]
+    handler: Callable[[BaseModel], dict[str, Any] | Awaitable[dict[str, Any]]]
     safety_level: ToolSafetyLevel
 
     @property
