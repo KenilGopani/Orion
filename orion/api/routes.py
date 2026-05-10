@@ -20,8 +20,8 @@ def build_routes(engine: ExecutionEngine, store: InMemoryTaskStore, events: Even
     router = APIRouter()
 
     @router.post("/tasks")
-    def create_task(request: CreateTaskRequest):
-        return engine.create_task(request.user_intent)
+    async def create_task(request: CreateTaskRequest):
+        return await engine.create_task(request.user_intent)
 
     @router.get("/tasks/{task_id}")
     def get_task(task_id: str):
@@ -35,9 +35,9 @@ def build_routes(engine: ExecutionEngine, store: InMemoryTaskStore, events: Even
         return store.list_tasks()
 
     @router.post("/tasks/{task_id}/approve")
-    def approve_task(task_id: str, request: ApproveTaskRequest):
+    async def approve_task(task_id: str, request: ApproveTaskRequest):
         try:
-            return engine.resume_task_after_approval(task_id, request.approved_by)
+            return await engine.resume_task_after_approval(task_id, request.approved_by)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ValueError as exc:
