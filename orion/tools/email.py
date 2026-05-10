@@ -7,7 +7,10 @@ via its installed email skills (Gmail, Outlook, etc.).
 """
 
 from __future__ import annotations
+
 from bridge import openclaw_client
+from orion.core.models import TaskStatus
+from orion.core.runtime import run_runtime_send_email
 
 
 def register(mcp):
@@ -44,9 +47,20 @@ def register(mcp):
             subject: Email subject line.
             body: Email body content.
         """
-        task = f"Send an email to {to} with subject '{subject}' and body: {body}"
-        result = await openclaw_client.send_task(task)
-        return result["result"]
+        runtime_task = await run_runtime_send_email(to=to, subject=subject, body=body)
+        if runtime_task.status == TaskStatus.AWAITING_APPROVAL:
+            return (
+                "Email requires approval before execution. "
+                f"Approve task via API: POST /tasks/{runtime_task.id}/approve"
+            )
+        if runtime_task.status == TaskStatus.SUCCEEDED and runtime_task.steps:
+            result = runtime_task.steps[-1].tool_result
+            if result and result.output.get("message"):
+                return str(result.output["message"])
+            return "Email task completed successfully."
+        if runtime_task.error:
+            return f"Email task failed: {runtime_task.error}"
+        return f"Email task ended with status {runtime_task.status}."
 
     @mcp.tool()
     async def summarize_inbox() -> str:
