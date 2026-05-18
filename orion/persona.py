@@ -21,6 +21,8 @@ def get_system_prompt() -> str:
 
     The template file uses ``{user_name}`` as a placeholder that is
     replaced with the configured ``ORION_USER_NAME`` env var.
+
+    If there are stored memories, they are appended as context.
     """
     template_path = _PROMPT_DIR / "system_prompt.txt"
 
@@ -34,4 +36,16 @@ def get_system_prompt() -> str:
             "Never be sycophantic. Keep spoken responses short and natural."
         )
 
-    return template.format(user_name=config.user_name)
+    prompt = template.format(user_name=config.user_name)
+
+    # Inject stored memories
+    try:
+        from orion.services.memory import memory_service
+
+        memories = memory_service.format_for_context()
+        if memories:
+            prompt += f"\n\nThings I remember about {config.user_name}:\n{memories}"
+    except Exception:
+        pass  # Don't crash if memory service isn't available
+
+    return prompt
