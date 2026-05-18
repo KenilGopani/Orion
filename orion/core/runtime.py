@@ -269,3 +269,72 @@ async def run_runtime_send_slack(channel: str, message: str) -> Task:
             )
         ],
     )
+
+
+# ── Memory tools — READ_ONLY / LOW_RISK ──────────────────────────────────────
+
+class MemoryRememberInput(BaseModel):
+    key: str
+    value: str
+
+
+class MemoryRecallInput(BaseModel):
+    topic: str
+
+
+class MemoryForgetInput(BaseModel):
+    key: str
+
+
+def _memory_remember_handler(payload: MemoryRememberInput) -> dict[str, str]:
+    from orion.services.memory import memory_service
+    memory_service.remember(key=payload.key, value=payload.value)
+    return {"message": f"Remembered: {payload.key} = {payload.value}"}
+
+
+def _memory_recall_handler(payload: MemoryRecallInput) -> dict[str, str]:
+    from orion.services.memory import memory_service
+    results = memory_service.recall(payload.topic)
+    if not results:
+        return {"message": f"Nothing stored about '{payload.topic}'"}
+    lines = [f"{m.key}: {m.value}" for m in results]
+    return {"message": "\n".join(lines)}
+
+
+def _memory_forget_handler(payload: MemoryForgetInput) -> dict[str, str]:
+    from orion.services.memory import memory_service
+    found = memory_service.forget(payload.key)
+    if found:
+        return {"message": f"Forgot '{payload.key}'"}
+    return {"message": f"Nothing to forget about '{payload.key}'"}
+
+
+registry.register(
+    ToolDefinition(
+        name="memory_remember",
+        description="Store a fact in long-term memory (key/value)",
+        input_model=MemoryRememberInput,
+        handler=_memory_remember_handler,
+        safety_level=ToolSafetyLevel.LOW_RISK,
+    )
+)
+
+registry.register(
+    ToolDefinition(
+        name="memory_recall",
+        description="Search long-term memory for facts about a topic",
+        input_model=MemoryRecallInput,
+        handler=_memory_recall_handler,
+        safety_level=ToolSafetyLevel.READ_ONLY,
+    )
+)
+
+registry.register(
+    ToolDefinition(
+        name="memory_forget",
+        description="Remove a fact from long-term memory",
+        input_model=MemoryForgetInput,
+        handler=_memory_forget_handler,
+        safety_level=ToolSafetyLevel.LOW_RISK,
+    )
+)

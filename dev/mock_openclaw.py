@@ -148,6 +148,10 @@ _TOOL_MAP: dict[str, tuple[str, dict]] = {
     "calendar": ("openclaw_send_email", {"to": "calendar", "subject": "check", "body": "events today"}),
     "write file": ("openclaw_write_file", {"path": "output.txt", "content": ""}),
     "run command": ("openclaw_run_command", {"command": "echo hello"}),
+    "remember": ("memory_remember", {"key": "", "value": ""}),
+    "recall": ("memory_recall", {"topic": ""}),
+    "what do i know": ("memory_recall", {"topic": ""}),
+    "forget": ("memory_forget", {"key": ""}),
     "time": ("echo_tool", {"message": ""}),
 }
 
@@ -177,6 +181,19 @@ def _mock_plan(user_message: str) -> str:
                     args["body"] = part.strip()
                 if "content" in args and not args["content"]:
                     args["content"] = part.strip()
+                if "topic" in args and not args["topic"]:
+                    args["topic"] = part.strip()
+                # Extract key/value for memory_remember
+                if "key" in args and "value" in args:
+                    m = re.search(r'(?:my\s+)?(.+?)\s+is\s+(.+)', part)
+                    if m:
+                        args["key"] = m.group(1).strip()
+                        args["value"] = m.group(2).strip()
+                    else:
+                        args["key"] = part.strip()
+                        args["value"] = part.strip()
+                elif "key" in args and not args["key"]:
+                    args["key"] = part.strip()
 
                 steps.append({
                     "name": f"step_{len(steps) + 1}_{keyword.replace(' ', '_')}",
