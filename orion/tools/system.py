@@ -33,10 +33,20 @@ def register(mcp):
     async def run_command(command: str) -> str:
         """
         Run a shell command on the user's system.
+        Requires approval before execution.
 
         Args:
             command: The shell command to execute.
         """
-        task = f"Run the following shell command and tell me the output: {command}"
-        result = await get_openclaw_client().send_task(task)
-        return result["result"]
+        from orion.core.models import TaskStatus
+        from orion.core.runtime import run_runtime_run_command
+
+        task = await run_runtime_run_command(command=command)
+        if task.status == TaskStatus.AWAITING_APPROVAL:
+            return (
+                f"Running '{command}' requires your approval. "
+                "Please approve via the Orion API or say 'approve' to proceed."
+            )
+        if task.steps and task.steps[-1].tool_result:
+            return task.steps[-1].tool_result.output.get("message", "Command executed, sir.")
+        return "Command executed, sir."
