@@ -80,3 +80,28 @@ class EventRecord(SQLModel, table=True):
     event_type: str
     payload: str = "{}"  # JSON string
     created_at: datetime = Field(default_factory=_utc_now)
+
+
+class MemoryRecord(SQLModel, table=True):
+    """A single remembered fact — key/value with metadata."""
+
+    __tablename__ = "memories"
+
+    id: str = Field(default_factory=_new_id, primary_key=True)
+    key: str = Field(index=True)
+    value: str
+    source: str = "voice"  # "voice" | "manual" | "system"
+    created_at: datetime = Field(default_factory=_utc_now)
+    updated_at: datetime = Field(default_factory=_utc_now)
+
+
+class ConversationMessage(SQLModel, table=True):
+    """A single message in a conversation session."""
+
+    __tablename__ = "conversation_log"
+
+    id: str = Field(default_factory=_new_id, primary_key=True)
+    session_id: str = Field(index=True)
+    role: str  # "user" | "assistant"
+    content: str
+    timestamp: datetime = Field(default_factory=_utc_now)
