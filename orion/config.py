@@ -9,12 +9,26 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _env_bool(key: str, default: str = "false") -> bool:
+    """Parse a boolean environment variable."""
+    return os.getenv(key, default).lower() in {"true", "1", "yes"}
+
+
 @dataclass
 class Config:
     """Centralised configuration loaded from environment variables."""
 
     # Server identity
     server_name: str = field(default_factory=lambda: os.getenv("SERVER_NAME", "ORION"))
+
+    # ── Development mode ──────────────────────────────────────────
+    dev_mode: bool = field(default_factory=lambda: _env_bool("DEV_MODE"))
+    mock_openclaw: bool = field(default_factory=lambda: _env_bool("MOCK_OPENCLAW"))
+
+    # ── Per-subsystem feature flags ───────────────────────────────
+    enable_voice: bool = field(default_factory=lambda: _env_bool("ENABLE_VOICE", "true"))
+    enable_scheduler: bool = field(default_factory=lambda: _env_bool("ENABLE_SCHEDULER"))
+    enable_api: bool = field(default_factory=lambda: _env_bool("ENABLE_API", "true"))
 
     # ── Provider switches ─────────────────────────────────────────
     stt_provider: str = field(default_factory=lambda: os.getenv("STT_PROVIDER", "groq"))
