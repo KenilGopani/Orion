@@ -29,6 +29,7 @@ BANNER = """
 ║  Commands:                                       ║
 ║    tasks   — list recent tasks                   ║
 ║    events  — show events for last task           ║
+║    memory  — show stored memories                ║
 ║    health  — check system status                 ║
 ║    exit    — quit                                ║
 ║  Or type any voice command to test the engine.   ║
@@ -90,6 +91,19 @@ async def main() -> None:
                     "CANCELLED": "⊘",
                 }.get(t.status, "?")
                 print(f"  {status_icon} [{t.status:20s}] {t.user_intent}")
+            print()
+            continue
+
+        if user_input.lower() == "memory":
+            from orion.services.memory import memory_service
+
+            memories = memory_service.get_all()
+            if not memories:
+                print("  No memories stored yet.\n")
+                continue
+            print(f"\n  Stored memories ({len(memories)}):")
+            for m in memories:
+                print(f"    • {m.key}: {m.value}")
             print()
             continue
 

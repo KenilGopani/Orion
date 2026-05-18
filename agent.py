@@ -249,6 +249,28 @@ async def entrypoint(ctx: JobContext) -> None:
         min_endpointing_delay=_endpointing_delay(),
     )
 
+    # ── Conversation logging ──────────────────────────────────────
+    try:
+        from orion.services.conversation import ConversationLogger
+
+        conv_logger = ConversationLogger(session_id=ctx.room.name)
+
+        @session.on("user_input_transcribed")
+        def _on_user_input(event):
+            if hasattr(event, "text") and event.text:
+                conv_logger.log("user", event.text)
+                logger.debug("Logged user: %s", event.text[:60])
+
+        @session.on("agent_speech_committed")
+        def _on_agent_speech(event):
+            if hasattr(event, "content") and event.content:
+                conv_logger.log("assistant", event.content)
+                logger.debug("Logged assistant: %s", event.content[:60])
+
+        logger.info("Conversation logging enabled for session: %s", ctx.room.name)
+    except Exception as exc:
+        logger.warning("Conversation logging not available: %s", exc)
+
     await session.start(
         agent=OrionAgent(stt=stt, llm=llm, tts=tts),
         room=ctx.room,
