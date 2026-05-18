@@ -28,7 +28,6 @@ async def _openclaw_send_email_handler(payload: OpenClawSendEmailInput) -> dict[
         raise RuntimeError(result["result"])
     return {"message": result["result"]}
 
-
 # Ensure database tables exist before creating the stores
 init_db()
 
@@ -36,11 +35,18 @@ store = PersistentTaskStore()
 events = PersistentEventStore()
 registry = default_registry()
 approval_gate = ApprovalGate(store)
+
+# Import planner lazily to avoid circular imports at module level
+from orion.core.planner import LLMPlanner  # noqa: E402
+from orion.config import config as _cfg  # noqa: E402
+
+planner = LLMPlanner(registry=registry, llm_provider=_cfg.llm_provider)
 engine = ExecutionEngine(
     store=store,
     events=events,
     registry=registry,
     approval_gate=approval_gate,
+    planner=planner,
 )
 
 registry.register(

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import inspect
-from typing import Any
+import logging
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
 from orion.core.approvals import ApprovalGate
-from orion.core.events import EventRecorder
 from orion.core.models import (
     StepStatus,
     Task,
@@ -18,7 +18,11 @@ from orion.core.models import (
     utc_now,
 )
 from orion.core.registry import ToolDefinition, ToolRegistry
-from orion.core.store import InMemoryTaskStore
+
+if TYPE_CHECKING:
+    from orion.core.planner import LLMPlanner
+
+logger = logging.getLogger("orion.engine")
 
 
 class EchoToolInput(BaseModel):
@@ -76,15 +80,17 @@ class ExecutionEngine:
     def __init__(
         self,
         *,
-        store: InMemoryTaskStore,
-        events: EventRecorder,
+        store: Any,
+        events: Any,
         registry: ToolRegistry,
         approval_gate: ApprovalGate,
+        planner: LLMPlanner | None = None,
     ) -> None:
         self._store = store
         self._events = events
         self._registry = registry
         self._approval_gate = approval_gate
+        self._planner = planner
 
     async def create_task(self, user_intent: str) -> Task:
         task = self._store.create_task(user_intent=user_intent)
@@ -138,7 +144,7 @@ class ExecutionEngine:
 
         if not task.steps:
             self._store.update_task_status(task_id, TaskStatus.PLANNING)
-            planned_steps = self._plan(task.user_intent)
+            planned_steps = await self._plan(task.user_intent)
             for planned in planned_steps:
                 self._store.append_step(
                     task_id,
@@ -230,7 +236,25 @@ class ExecutionEngine:
             )
             self._events.record(task_id, "task_failed", {"error": str(exc)})
 
-    def _plan(self, user_intent: str) -> list[PlannedStep]:
+    async def _plan(self, user_intent: str) -> list[PlannedStep]:
+        """Decompose user intent into planned steps.
+
+        Delegates to the injected LLMPlanner if available, otherwise
+        falls back to the simple keyword-based stub.
+        """
+        if self._planner:
+            plan = await self._planner.plan(user_intent)
+            return [
+                PlannedStep(
+                    name=step.name,
+                    description=step.description,
+                    tool_name=step.tool_name,
+                    tool_args=step.tool_args,
+                )
+                for step in plan.steps
+            ]
+
+        # Fallback: simple keyword-based planning (no LLM)
         intent_lower = user_intent.lower()
         if "email" in intent_lower or "send" in intent_lower:
             return [

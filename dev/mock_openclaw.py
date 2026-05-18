@@ -134,6 +134,84 @@ def _match_response(user_message: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Mock planner — returns JSON plans for the LLMPlanner
+# ---------------------------------------------------------------------------
+
+# Keyword → (tool_name, default_args)
+_TOOL_MAP: dict[str, tuple[str, dict]] = {
+    "email": ("openclaw_send_email", {"to": "demo@example.com", "subject": "Orion Task", "body": ""}),
+    "send email": ("openclaw_send_email", {"to": "demo@example.com", "subject": "Orion Task", "body": ""}),
+    "inbox": ("openclaw_send_email", {"to": "inbox", "subject": "check", "body": "summarise"}),
+    "whatsapp": ("openclaw_send_whatsapp", {"recipient": "Priya", "message": ""}),
+    "telegram": ("openclaw_send_telegram", {"recipient": "contact", "message": ""}),
+    "slack": ("openclaw_send_slack", {"channel": "#general", "message": ""}),
+    "calendar": ("openclaw_send_email", {"to": "calendar", "subject": "check", "body": "events today"}),
+    "write file": ("openclaw_write_file", {"path": "output.txt", "content": ""}),
+    "run command": ("openclaw_run_command", {"command": "echo hello"}),
+    "time": ("echo_tool", {"message": ""}),
+}
+
+import json as _json
+
+
+def _mock_plan(user_message: str) -> str:
+    """Generate a mock JSON plan based on keywords in the user's intent."""
+    lower = user_message.lower()
+    steps = []
+
+    # Check for multi-step intents (split on "and", "then", ",")
+    parts = re.split(r'\band\b|\bthen\b|,', lower)
+    parts = [p.strip() for p in parts if p.strip()]
+
+    for part in parts:
+        matched = False
+        # Try longest keyword matches first
+        for keyword in sorted(_TOOL_MAP.keys(), key=len, reverse=True):
+            if keyword in part:
+                tool_name, default_args = _TOOL_MAP[keyword]
+                args = dict(default_args)
+                # Fill in the user's message where appropriate
+                if "message" in args and not args["message"]:
+                    args["message"] = part.strip()
+                if "body" in args and not args["body"]:
+                    args["body"] = part.strip()
+                if "content" in args and not args["content"]:
+                    args["content"] = part.strip()
+
+                steps.append({
+                    "name": f"step_{len(steps) + 1}_{keyword.replace(' ', '_')}",
+                    "description": f"Execute: {part.strip()}",
+                    "tool_name": tool_name,
+                    "tool_args": args,
+                })
+                matched = True
+                break
+
+        if not matched:
+            # Default to echo for unrecognised parts
+            steps.append({
+                "name": f"step_{len(steps) + 1}_echo",
+                "description": f"Echo: {part.strip()}",
+                "tool_name": "echo_tool",
+                "tool_args": {"message": part.strip()},
+            })
+
+    if not steps:
+        steps.append({
+            "name": "echo_intent",
+            "description": "Echo the user intent",
+            "tool_name": "echo_tool",
+            "tool_args": {"message": user_message},
+        })
+
+    plan = {
+        "reasoning": f"Decomposed '{user_message[:60]}' into {len(steps)} step(s)",
+        "steps": steps,
+    }
+    return _json.dumps(plan)
+
+
+# ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
@@ -141,12 +219,18 @@ def _match_response(user_message: str) -> str:
 async def chat_completions(req: ChatRequest):
     """OpenAI-compatible chat completions endpoint."""
     user_message = ""
-    for msg in reversed(req.messages):
+    system_message = ""
+    for msg in req.messages:
         if msg.role == "user":
             user_message = msg.content
-            break
+        if msg.role == "system":
+            system_message = msg.content
 
-    response_text = _match_response(user_message)
+    # Detect planning requests (from LLMPlanner)
+    if "task planning ai" in system_message.lower():
+        response_text = _mock_plan(user_message)
+    else:
+        response_text = _match_response(user_message)
 
     return {
         "id": f"mock-{random.randint(1000, 9999)}",
