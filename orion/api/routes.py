@@ -50,4 +50,30 @@ def build_routes(engine: ExecutionEngine, store: InMemoryTaskStore, events: Even
             raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
         return events.list_events(task_id)
 
+    @router.get("/health")
+    async def health():
+        from bridge import openclaw_client
+        from orion.config import config
+
+        openclaw_ok = False
+        try:
+            openclaw_ok = await openclaw_client.health_check()
+        except Exception:
+            pass
+
+        return {
+            "status": "ok",
+            "dev_mode": config.dev_mode,
+            "mock_openclaw": config.mock_openclaw,
+            "dependencies": {
+                "openclaw": openclaw_ok,
+            },
+            "providers": {
+                "stt": config.stt_provider,
+                "llm": config.llm_provider,
+                "tts": config.tts_provider,
+            },
+        }
+
     return router
+
