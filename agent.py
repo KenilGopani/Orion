@@ -260,6 +260,7 @@ async def entrypoint(ctx: JobContext) -> None:
 # ---------------------------------------------------------------------------
 
 def main():
+    config.validate(require_voice=True)
     cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
 
 

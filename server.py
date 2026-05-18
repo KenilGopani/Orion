@@ -76,6 +76,7 @@ async def _startup_health_check() -> None:
 
 def main():
     """Start the FastMCP server with SSE transport."""
+    config.validate()
     logger.info("Orion MCP Server starting on port %d…", config.mcp_server_port)
 
     # Run the health check before starting the server
