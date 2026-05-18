@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import unittest
-import types
-import sys
 from unittest.mock import AsyncMock, patch
 
-sys.modules.setdefault("dotenv", types.SimpleNamespace(load_dotenv=lambda: None))
+from tests.conftest import reset_test_db  # noqa: F401 — also sets up in-memory DB
 
 from orion.core.models import TaskStatus
 from orion.core.runtime import engine, events, run_runtime_send_email, store
@@ -13,10 +11,7 @@ from orion.core.runtime import engine, events, run_runtime_send_email, store
 
 class RuntimeEmailAdapterTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
-        store._tasks.clear()  # noqa: SLF001
-        store._approvals_by_task.clear()  # noqa: SLF001
-        store._approvals_by_id.clear()  # noqa: SLF001
-        events._events_by_task.clear()  # noqa: SLF001
+        reset_test_db()
         # Reset the lazy singleton so mocks take effect
         import bridge
         bridge._openclaw_client = None

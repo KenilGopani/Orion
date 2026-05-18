@@ -13,6 +13,8 @@ dependencies = [
     "livekit-plugins-elevenlabs>=0.2.1",
     "pydantic>=2.8",
     "python-dotenv",
+    "sqlmodel>=0.0.19",
+    "aiosqlite>=0.19.0",
     "uvicorn>=0.30",
     "websockets",
 ]

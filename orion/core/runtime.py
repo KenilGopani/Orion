@@ -5,10 +5,11 @@ from pydantic import BaseModel
 from bridge import get_openclaw_client
 from orion.core.approvals import ApprovalGate
 from orion.core.engine import ExecutionEngine, PlannedStep, default_registry
-from orion.core.events import EventRecorder
 from orion.core.models import Task, ToolSafetyLevel
 from orion.core.registry import ToolDefinition
-from orion.core.store import InMemoryTaskStore
+from orion.db.session import init_db
+from orion.db.task_store import PersistentTaskStore
+from orion.db.event_store import PersistentEventStore
 
 
 class OpenClawSendEmailInput(BaseModel):
@@ -28,8 +29,11 @@ async def _openclaw_send_email_handler(payload: OpenClawSendEmailInput) -> dict[
     return {"message": result["result"]}
 
 
-store = InMemoryTaskStore()
-events = EventRecorder()
+# Ensure database tables exist before creating the stores
+init_db()
+
+store = PersistentTaskStore()
+events = PersistentEventStore()
 registry = default_registry()
 approval_gate = ApprovalGate(store)
 engine = ExecutionEngine(
