@@ -4,7 +4,7 @@ System tools — time, system info, shell commands via OpenClaw.
 
 from __future__ import annotations
 from datetime import datetime, timezone
-from bridge import openclaw_client
+from bridge import get_openclaw_client
 
 
 def register(mcp):
@@ -26,7 +26,7 @@ def register(mcp):
             "Get system information: operating system, CPU, memory usage, "
             "disk space, and uptime. Summarize it briefly."
         )
-        result = await openclaw_client.send_task(task)
+        result = await get_openclaw_client().send_task(task)
         return result["result"]
 
     @mcp.tool()
@@ -38,5 +38,5 @@ def register(mcp):
             command: The shell command to execute.
         """
         task = f"Run the following shell command and tell me the output: {command}"
-        result = await openclaw_client.send_task(task)
+        result = await get_openclaw_client().send_task(task)
         return result["result"]

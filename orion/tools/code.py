@@ -3,7 +3,7 @@ Code tools — create projects, run scripts, open editor via OpenClaw.
 """
 
 from __future__ import annotations
-from bridge import openclaw_client
+from bridge import get_openclaw_client
 
 
 def register(mcp):
@@ -30,7 +30,7 @@ def register(mcp):
         if path:
             task += f" in the directory {path}"
         task += ". Set up the standard project structure, dependencies, and a basic starter file."
-        result = await openclaw_client.send_task(task)
+        result = await get_openclaw_client().send_task(task)
         return result["result"]
 
     @mcp.tool()
@@ -43,7 +43,7 @@ def register(mcp):
             language: Programming language of the code.
         """
         task = f"Run the following {language} code and tell me the output:\n{code}"
-        result = await openclaw_client.send_task(task)
+        result = await get_openclaw_client().send_task(task)
         return result["result"]
 
     @mcp.tool()
@@ -55,5 +55,5 @@ def register(mcp):
             path: File or directory path to open.
         """
         task = f"Open '{path}' in the default code editor (VS Code or similar)."
-        result = await openclaw_client.send_task(task)
+        result = await get_openclaw_client().send_task(task)
         return result["result"]

@@ -3,7 +3,7 @@ File tools — read, write, and search files via OpenClaw.
 """
 
 from __future__ import annotations
-from bridge import openclaw_client
+from bridge import get_openclaw_client
 
 
 def register(mcp):
@@ -17,7 +17,7 @@ def register(mcp):
             path: Absolute or relative file path.
         """
         task = f"Read the contents of the file at '{path}' and return a summary of what's in it."
-        result = await openclaw_client.send_task(task)
+        result = await get_openclaw_client().send_task(task)
         return result["result"]
 
     @mcp.tool()
@@ -30,7 +30,7 @@ def register(mcp):
             content: Content to write into the file.
         """
         task = f"Write the following content to the file at '{path}':\n{content}"
-        result = await openclaw_client.send_task(task)
+        result = await get_openclaw_client().send_task(task)
         return result["result"]
 
     @mcp.tool()
@@ -43,5 +43,5 @@ def register(mcp):
             directory: Directory to search in (default: current directory).
         """
         task = f"Search for files matching '{query}' in the directory '{directory}'. List what you find."
-        result = await openclaw_client.send_task(task)
+        result = await get_openclaw_client().send_task(task)
         return result["result"]

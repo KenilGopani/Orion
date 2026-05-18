@@ -7,7 +7,7 @@ task string for OpenClaw, which has skills installed for each platform.
 
 from __future__ import annotations
 
-from bridge import openclaw_client
+from bridge import get_openclaw_client
 from orion.core.models import TaskStatus
 from orion.core.runtime import run_runtime_send_whatsapp
 
@@ -48,7 +48,7 @@ def register(mcp):
             message: The message to send.
         """
         task = f"Send a Telegram message to {recipient}: {message}"
-        result = await openclaw_client.send_task(task)
+        result = await get_openclaw_client().send_task(task)
         return result["result"]
 
     @mcp.tool()
@@ -61,5 +61,5 @@ def register(mcp):
             message: The message to send.
         """
         task = f"Send a Slack message to {channel}: {message}"
-        result = await openclaw_client.send_task(task)
+        result = await get_openclaw_client().send_task(task)
         return result["result"]

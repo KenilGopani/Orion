@@ -8,7 +8,7 @@ via its installed email skills (Gmail, Outlook, etc.).
 
 from __future__ import annotations
 
-from bridge import openclaw_client
+from bridge import get_openclaw_client
 from orion.core.models import TaskStatus
 from orion.core.runtime import run_runtime_send_email
 
@@ -34,7 +34,7 @@ def register(mcp):
             task += " Summarize what's urgent or important."
         else:
             task += " List the subject lines and senders."
-        result = await openclaw_client.send_task(task)
+        result = await get_openclaw_client().send_task(task)
         return result["result"]
 
     @mcp.tool()
@@ -70,5 +70,5 @@ def register(mcp):
             "what needs a reply, and anything time-sensitive. "
             "Keep it brief — I'm listening, not reading."
         )
-        result = await openclaw_client.send_task(task)
+        result = await get_openclaw_client().send_task(task)
         return result["result"]

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from bridge import openclaw_client
+from bridge import get_openclaw_client
 from orion.core.approvals import ApprovalGate
 from orion.core.engine import ExecutionEngine, PlannedStep, default_registry
 from orion.core.events import EventRecorder
@@ -22,7 +22,7 @@ async def _openclaw_send_email_handler(payload: OpenClawSendEmailInput) -> dict[
         f"Send an email to {payload.to} "
         f"with subject '{payload.subject}' and body: {payload.body}"
     )
-    result = await openclaw_client.send_task(task)
+    result = await get_openclaw_client().send_task(task)
     if result["status"] != "success":
         raise RuntimeError(result["result"])
     return {"message": result["result"]}
@@ -71,7 +71,7 @@ class OpenClawSendWhatsAppInput(BaseModel):
 
 async def _openclaw_send_whatsapp_handler(payload: OpenClawSendWhatsAppInput) -> dict[str, str]:
     task = f"Send a WhatsApp message to {payload.recipient}: {payload.message}"
-    result = await openclaw_client.send_task(task)
+    result = await get_openclaw_client().send_task(task)
     if result["status"] != "success":
         raise RuntimeError(result["result"])
     return {"message": result["result"]}
