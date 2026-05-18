@@ -68,5 +68,78 @@ class Config:
         default_factory=lambda: int(os.getenv("MCP_SERVER_PORT", "8000"))
     )
 
+    # ── Validation ────────────────────────────────────────────────
+
+    # Provider → (config field, env var name) required keys
+    _STT_KEYS: dict[str, tuple[str, str]] = field(default_factory=lambda: {
+        "groq": ("groq_api_key", "GROQ_API_KEY"),
+        "whisper": ("openai_api_key", "OPENAI_API_KEY"),
+        "openai": ("openai_api_key", "OPENAI_API_KEY"),
+        "sarvam": ("sarvam_api_key", "SARVAM_API_KEY"),
+        "deepgram": ("deepgram_api_key", "DEEPGRAM_API_KEY"),
+    }, repr=False)
+
+    _LLM_KEYS: dict[str, tuple[str, str]] = field(default_factory=lambda: {
+        "gemini": ("google_api_key", "GOOGLE_API_KEY"),
+        "openai": ("openai_api_key", "OPENAI_API_KEY"),
+        "groq": ("groq_api_key", "GROQ_API_KEY"),
+    }, repr=False)
+
+    _TTS_KEYS: dict[str, tuple[str, str]] = field(default_factory=lambda: {
+        "elevenlabs": ("elevenlabs_api_key", "ELEVEN_API_KEY"),
+        "openai": ("openai_api_key", "OPENAI_API_KEY"),
+        "sarvam": ("sarvam_api_key", "SARVAM_API_KEY"),
+    }, repr=False)
+
+    def validate(self, require_voice: bool = False) -> None:
+        """Validate configuration, raising SystemExit with helpful message on failure.
+
+        Args:
+            require_voice: If True, also validate LiveKit and provider keys.
+                           Set to True when starting the voice agent.
+        """
+        if self.dev_mode:
+            return  # skip validation entirely in dev mode
+
+        errors: list[str] = []
+
+        if require_voice:
+            # LiveKit keys are required for the voice agent
+            if not self.livekit_url:
+                errors.append("  Missing: LIVEKIT_URL")
+            if not self.livekit_api_key:
+                errors.append("  Missing: LIVEKIT_API_KEY")
+            if not self.livekit_api_secret:
+                errors.append("  Missing: LIVEKIT_API_SECRET")
+
+            # Check that the selected STT provider has its API key set
+            stt_req = self._STT_KEYS.get(self.stt_provider)
+            if stt_req:
+                attr, env = stt_req
+                if not getattr(self, attr):
+                    errors.append(f"  Missing: {env} (required for STT provider '{self.stt_provider}')")
+
+            # Check that the selected LLM provider has its API key set
+            llm_req = self._LLM_KEYS.get(self.llm_provider)
+            if llm_req:
+                attr, env = llm_req
+                if not getattr(self, attr):
+                    errors.append(f"  Missing: {env} (required for LLM provider '{self.llm_provider}')")
+
+            # Check that the selected TTS provider has its API key set
+            tts_req = self._TTS_KEYS.get(self.tts_provider)
+            if tts_req:
+                attr, env = tts_req
+                if not getattr(self, attr):
+                    errors.append(f"  Missing: {env} (required for TTS provider '{self.tts_provider}')")
+
+        if errors:
+            raise SystemExit(
+                "\n[Orion] Cannot start — missing required environment variables:\n\n"
+                + "\n".join(errors)
+                + "\n\nCopy .env.example to .env and fill in the values."
+                + "\nFor development without API keys: make dev\n"
+            )
+
 
 config = Config()

@@ -6,7 +6,7 @@ so Orion can remember preferences, facts, and context over time.
 """
 
 from __future__ import annotations
-from bridge import openclaw_client
+from bridge import get_openclaw_client
 
 
 def register(mcp):
@@ -20,7 +20,7 @@ def register(mcp):
             fact: The information to remember (e.g. "My standup is at 10am every weekday").
         """
         task = f"Remember the following for future reference: {fact}"
-        result = await openclaw_client.send_task(task)
+        result = await get_openclaw_client().send_task(task)
         return result["result"]
 
     @mcp.tool()
@@ -32,7 +32,7 @@ def register(mcp):
             topic: The topic to search memory for (e.g. "standup time", "Priya's email").
         """
         task = f"What do you know about: {topic}? Search your memory and tell me."
-        result = await openclaw_client.send_task(task)
+        result = await get_openclaw_client().send_task(task)
         return result["result"]
 
     @mcp.tool()
@@ -44,5 +44,5 @@ def register(mcp):
             topic: The topic to forget.
         """
         task = f"Forget everything stored about: {topic}"
-        result = await openclaw_client.send_task(task)
+        result = await get_openclaw_client().send_task(task)
         return result["result"]

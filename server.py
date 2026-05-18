@@ -18,7 +18,7 @@ import logging
 from mcp.server.fastmcp import FastMCP
 from orion.tools import register_all_tools
 from orion.config import config
-from bridge import openclaw_client
+from bridge import get_openclaw_client
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -53,9 +53,10 @@ register_all_tools(mcp)
 
 async def _startup_health_check() -> None:
     """Log OpenClaw daemon status on server boot."""
-    healthy = await openclaw_client.health_check()
+    client = get_openclaw_client()
+    healthy = await client.health_check()
     if healthy:
-        skills = await openclaw_client.list_skills()
+        skills = await client.list_skills()
         logger.info("✓ OpenClaw daemon is ONLINE at %s", config.openclaw_url)
         if skills:
             logger.info("  Available agents/models: %s", ", ".join(skills))
@@ -75,6 +76,7 @@ async def _startup_health_check() -> None:
 
 def main():
     """Start the FastMCP server with SSE transport."""
+    config.validate()
     logger.info("Orion MCP Server starting on port %d…", config.mcp_server_port)
 
     # Run the health check before starting the server

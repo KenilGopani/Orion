@@ -52,7 +52,7 @@ MOCK_RESPONSES: dict[str, str] = {
         "The file contains a Python module with 3 functions and 2 classes. "
         "It appears to be a utility module for data processing."
     ),
-    "write file": "File written successfully, sir.",
+    "write file": "File written successfully at '{path}', sir. Content saved.",
     "search files": (
         "Found 5 files matching your query. The most relevant are: "
         "config.py, utils.py, and main.py."
@@ -68,7 +68,7 @@ MOCK_RESPONSES: dict[str, str] = {
         "You're running macOS on an Apple Silicon chip with 16 GB of RAM. "
         "Disk usage is at 62 percent. System uptime is 3 days."
     ),
-    "run command": "Command executed successfully. Exit code 0.",
+    "run command": "Command executed successfully. Exit code 0. Output: operation completed.",
     "remember": "Noted, sir. I'll remember that for future reference.",
     "recall": "Based on what I have stored, here's what I know about that topic.",
     "forget": "Done, sir. That information has been removed from memory.",
@@ -126,6 +126,7 @@ def _match_response(user_message: str) -> str:
                 channel=_extract_after(lower, "channel") or "#general",
                 title=_extract_after(lower, "titled") or "Meeting",
                 date=_extract_after(lower, "on") or "the scheduled date",
+                path=_extract_after(lower, "at") or _extract_after(lower, "file") or "the file",
             )
             return response
 

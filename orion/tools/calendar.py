@@ -3,7 +3,7 @@ Calendar tools — check events, create meetings, reschedule via OpenClaw.
 """
 
 from __future__ import annotations
-from bridge import openclaw_client
+from bridge import get_openclaw_client
 
 
 def register(mcp):
@@ -18,7 +18,7 @@ def register(mcp):
             count: Maximum number of events to return.
         """
         task = f"Check my calendar for {date}. Show me the next {count} events."
-        result = await openclaw_client.send_task(task)
+        result = await get_openclaw_client().send_task(task)
         return result["result"]
 
     @mcp.tool()
@@ -42,7 +42,7 @@ def register(mcp):
         task = f"Create a calendar event titled '{title}' on {date} at {time}, lasting {duration}."
         if attendees:
             task += f" Invite: {attendees}."
-        result = await openclaw_client.send_task(task)
+        result = await get_openclaw_client().send_task(task)
         return result["result"]
 
     @mcp.tool()
@@ -65,5 +65,5 @@ def register(mcp):
         if new_time:
             task += f" at {new_time}"
         task += "."
-        result = await openclaw_client.send_task(task)
+        result = await get_openclaw_client().send_task(task)
         return result["result"]
