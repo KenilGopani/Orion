@@ -76,6 +76,14 @@ export interface ConversationMessage {
   timestamp: string;
 }
 
+export interface SchedulerJob {
+  id: string;
+  name: string;
+  schedule: string;
+  enabled: boolean;
+  next_run: string | null;
+}
+
 // ── API Client ───────────────────────────────────────────────────
 
 export const orionApi = {
@@ -105,6 +113,9 @@ export const orionApi = {
 
   getConversations: (): Promise<ConversationMessage[]> =>
     fetch(`${API_BASE}/conversations`).then((r) => r.json()),
+
+  getSchedulerJobs: (): Promise<SchedulerJob[]> =>
+    fetch(`${API_BASE}/scheduler/jobs`).then((r) => r.json()),
 
   streamEvents: (
     id: string,
