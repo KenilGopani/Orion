@@ -1,5 +1,5 @@
 .PHONY: dev mock-openclaw server voice api test test-cov lint lint-fix \
-        clean setup seed dashboard dashboard-build check-openclaw help
+        clean setup seed dashboard dashboard-build dashboard-setup check-openclaw help
 
 # ── Development (no API keys needed) ──────────────────────────
 dev: ## Run Orion in text mode with mock OpenClaw (no API keys needed)
@@ -22,8 +22,11 @@ api: ## Start the FastAPI runtime API (port 8010)
 	uv run orion_api
 
 # ── Frontend dashboard ─────────────────────────────────────────
+dashboard-setup: ## Install dashboard dependencies
+	cd dashboard && npm install
+
 dashboard: ## Start the dashboard dev server
-	cd dashboard && npm run dev
+	cd dashboard && npx vite
 
 dashboard-build: ## Build the dashboard for production
 	cd dashboard && npm run build
