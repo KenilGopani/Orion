@@ -140,6 +140,53 @@ def build_routes(engine: ExecutionEngine, store: Any, events: Any):
         except Exception:
             return []
 
+    # ── Scheduler ─────────────────────────────────────────────────
+
+    @router.get("/scheduler/jobs")
+    async def list_scheduler_jobs():
+        """Return the list of configured scheduler jobs and their status/next run time."""
+        from orion.config import config
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        from apscheduler.triggers.cron import CronTrigger
+
+        jobs_info = []
+        temp_sched = AsyncIOScheduler()
+
+        try:
+            # Register both jobs with their configured trigger times to compute next_run_time
+            h_mb, m_mb = map(int, config.morning_briefing_time.split(":"))
+            temp_sched.add_job(lambda: None, CronTrigger(hour=h_mb, minute=m_mb), id="morning_briefing")
+
+            h_ed, m_ed = map(int, config.email_digest_time.split(":"))
+            temp_sched.add_job(lambda: None, CronTrigger(hour=h_ed, minute=m_ed), id="email_digest")
+
+            # Start to calculate next_run_time
+            temp_sched.start()
+
+            for job_id, is_enabled, time_str in [
+                ("morning_briefing", config.morning_briefing_enabled, config.morning_briefing_time),
+                ("email_digest", config.email_digest_enabled, config.email_digest_time),
+            ]:
+                job = temp_sched.get_job(job_id)
+                next_run = None
+                if job and config.enable_scheduler and is_enabled:
+                    next_run = job.next_run_time.isoformat() if job.next_run_time else None
+
+                jobs_info.append({
+                    "id": job_id,
+                    "name": job_id.replace("_", " ").title(),
+                    "schedule": time_str,
+                    "enabled": is_enabled,
+                    "next_run": next_run,
+                })
+        finally:
+            try:
+                temp_sched.shutdown()
+            except Exception:
+                pass
+
+        return jobs_info
+
     # ── Health ────────────────────────────────────────────────────
 
     @router.get("/health")

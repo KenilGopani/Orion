@@ -30,6 +30,20 @@ class Config:
     enable_scheduler: bool = field(default_factory=lambda: _env_bool("ENABLE_SCHEDULER"))
     enable_api: bool = field(default_factory=lambda: _env_bool("ENABLE_API", "true"))
 
+    # ── Scheduled Actions ─────────────────────────────────────────
+    morning_briefing_enabled: bool = field(
+        default_factory=lambda: os.getenv("MORNING_BRIEFING", "false").lower() == "true"
+    )
+    morning_briefing_time: str = field(
+        default_factory=lambda: os.getenv("MORNING_BRIEFING_TIME", "08:00")
+    )
+    email_digest_enabled: bool = field(
+        default_factory=lambda: os.getenv("EMAIL_DIGEST", "false").lower() == "true"
+    )
+    email_digest_time: str = field(
+        default_factory=lambda: os.getenv("EMAIL_DIGEST_TIME", "09:00")
+    )
+
     # ── Provider switches ─────────────────────────────────────────
     stt_provider: str = field(default_factory=lambda: os.getenv("STT_PROVIDER", "groq"))
     llm_provider: str = field(default_factory=lambda: os.getenv("LLM_PROVIDER", "gemini"))

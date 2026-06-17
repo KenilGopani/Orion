@@ -4,13 +4,15 @@ import TaskList from "./components/TaskList";
 import TaskDetail from "./components/TaskDetail";
 import ApprovalPanel from "./components/ApprovalPanel";
 import ConversationLog from "./components/ConversationLog";
-import { useHealth, useTasks, useConversations, useToast } from "./hooks/useOrion";
+import SchedulerPanel from "./components/SchedulerPanel";
+import { useHealth, useTasks, useConversations, useToast, useSchedulerJobs } from "./hooks/useOrion";
 
 export default function App() {
   const health = useHealth(5000);
   const { tasks, refetch } = useTasks(2000);
   const conversations = useConversations(3000);
   const { toasts, addToast } = useToast();
+  const { jobs } = useSchedulerJobs(5000);
 
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
@@ -19,11 +21,14 @@ export default function App() {
       <StatusBar health={health} />
 
       <main className="main-content">
-        <TaskList
-          tasks={tasks}
-          selectedId={selectedTaskId}
-          onSelect={setSelectedTaskId}
-        />
+        <div className="sidebar">
+          <TaskList
+            tasks={tasks}
+            selectedId={selectedTaskId}
+            onSelect={setSelectedTaskId}
+          />
+          <SchedulerPanel jobs={jobs} />
+        </div>
 
         <TaskDetail taskId={selectedTaskId} tasks={tasks} />
 

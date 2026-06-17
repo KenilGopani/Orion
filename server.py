@@ -84,6 +84,18 @@ def main():
     # Run the health check before starting the server
     asyncio.get_event_loop().run_until_complete(_startup_health_check())
 
+    if config.enable_scheduler:
+        original_run_sse_async = mcp.run_sse_async
+
+        async def custom_run_sse_async(*args, **kwargs):
+            from orion.services.scheduler import OrionScheduler
+            from orion.core.runtime import engine
+            scheduler = OrionScheduler(engine)
+            scheduler.start(config)
+            await original_run_sse_async(*args, **kwargs)
+
+        mcp.run_sse_async = custom_run_sse_async
+
     logger.info("MCP Server ready — SSE transport on http://127.0.0.1:%d/sse", config.mcp_server_port)
     mcp.run(transport="sse")
 

@@ -10,6 +10,7 @@ import {
   type Task,
   type ConversationMessage,
   type RuntimeEvent,
+  type SchedulerJob,
 } from "../api/orion";
 
 // ── useHealth ────────────────────────────────────────────────────
@@ -104,4 +105,22 @@ export function useToast() {
   );
 
   return { toasts, addToast };
+}
+
+// ── useSchedulerJobs ─────────────────────────────────────────────
+
+export function useSchedulerJobs(intervalMs = 5000) {
+  const [jobs, setJobs] = useState<SchedulerJob[]>([]);
+
+  const refetch = useCallback(() => {
+    orionApi.getSchedulerJobs().then(setJobs).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    refetch();
+    const id = setInterval(refetch, intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs, refetch]);
+
+  return { jobs, refetch };
 }

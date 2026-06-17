@@ -747,3 +747,95 @@ body {
 .status-bar, .panel__header, .btn, .task-item {
   user-select: none;
 }
+
+/* ── Sidebar Layout ────────────────────────────────────────────── */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 1px;
+  min-height: 0;
+}
+
+.sidebar > #task-list-panel {
+  flex: 1;
+}
+
+/* ── Scheduler Panel ───────────────────────────────────────────── */
+.scheduler-panel {
+  height: 220px;
+  flex-shrink: 0;
+  border-top: 1px solid var(--glass-border);
+}
+
+.scheduler-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.scheduler-item {
+  background: var(--bg-surface);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.scheduler-item__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.scheduler-item__name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.scheduler-badge {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  font-weight: 600;
+  border: 1px solid;
+}
+
+.scheduler-badge--active {
+  background: rgba(52, 211, 153, 0.1);
+  color: var(--accent-green);
+  border-color: rgba(52, 211, 153, 0.25);
+}
+
+.scheduler-badge--disabled {
+  background: rgba(248, 113, 113, 0.1);
+  color: var(--accent-red);
+  border-color: rgba(248, 113, 113, 0.25);
+}
+
+.scheduler-item__details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.scheduler-item__cron code {
+  font-family: var(--font-mono);
+  color: var(--accent-cyan);
+  background: rgba(34, 211, 238, 0.08);
+  padding: 1px 4px;
+  border-radius: var(--radius-sm);
+}
+
+.scheduler-item__next {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
