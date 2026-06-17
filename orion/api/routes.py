@@ -143,7 +143,7 @@ def build_routes(engine: ExecutionEngine, store: Any, events: Any):
     # ── Scheduler ─────────────────────────────────────────────────
 
     @router.get("/scheduler/jobs")
-    def list_scheduler_jobs():
+    async def list_scheduler_jobs():
         """Return the list of configured scheduler jobs and their status/next run time."""
         from orion.config import config
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
