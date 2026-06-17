@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+from typing import Any
+
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from orion.core.engine import ExecutionEngine
-from orion.core.events import EventRecorder
-from orion.core.store import InMemoryTaskStore
+from orion.core.models import TaskStatus
 
 
 class CreateTaskRequest(BaseModel):
@@ -16,8 +19,10 @@ class ApproveTaskRequest(BaseModel):
     approved_by: str = "human_operator"
 
 
-def build_routes(engine: ExecutionEngine, store: InMemoryTaskStore, events: EventRecorder):
+def build_routes(engine: ExecutionEngine, store: Any, events: Any):
     router = APIRouter()
+
+    # ── Tasks ─────────────────────────────────────────────────────
 
     @router.post("/tasks")
     async def create_task(request: CreateTaskRequest):
@@ -34,6 +39,8 @@ def build_routes(engine: ExecutionEngine, store: InMemoryTaskStore, events: Even
     def list_tasks():
         return store.list_tasks()
 
+    # ── Approvals ─────────────────────────────────────────────────
+
     @router.post("/tasks/{task_id}/approve")
     async def approve_task(task_id: str, request: ApproveTaskRequest):
         try:
@@ -43,6 +50,25 @@ def build_routes(engine: ExecutionEngine, store: InMemoryTaskStore, events: Even
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @router.post("/tasks/{task_id}/reject")
+    async def reject_task(task_id: str):
+        """Reject a pending approval — marks the task as FAILED."""
+        task = store.get_task(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+        if task.status != TaskStatus.AWAITING_APPROVAL:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Task {task_id} is not awaiting approval (status: {task.status})",
+            )
+        updated = store.update_task_status(
+            task_id, TaskStatus.FAILED, error="Rejected by user"
+        )
+        events.record(task_id, "task_rejected", {"rejected_by": "dashboard_user"})
+        return updated
+
+    # ── Events & Streaming ────────────────────────────────────────
+
     @router.get("/tasks/{task_id}/events")
     def list_task_events(task_id: str):
         task = store.get_task(task_id)
@@ -50,14 +76,81 @@ def build_routes(engine: ExecutionEngine, store: InMemoryTaskStore, events: Even
             raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
         return events.list_events(task_id)
 
+    @router.get("/tasks/{task_id}/stream")
+    async def stream_task_events(task_id: str):
+        """SSE stream of task events — pushes new events in real time."""
+        task = store.get_task(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+
+        async def event_generator():
+            last_seen = 0
+            while True:
+                all_events = events.list_events(task_id)
+                new_events = all_events[last_seen:]
+                for event in new_events:
+                    yield f"data: {event.model_dump_json()}\n\n"
+                    last_seen += 1
+                # Stop streaming if task has reached a terminal state
+                current = store.get_task(task_id)
+                if current and current.status in (
+                    TaskStatus.SUCCEEDED,
+                    TaskStatus.FAILED,
+                    TaskStatus.CANCELLED,
+                ):
+                    break
+                await asyncio.sleep(0.5)
+
+        return StreamingResponse(
+            event_generator(), media_type="text/event-stream"
+        )
+
+    # ── Conversations ─────────────────────────────────────────────
+
+    @router.get("/conversations")
+    def list_conversations():
+        """Return recent conversation messages across all sessions."""
+        try:
+            from sqlmodel import select
+            from orion.db.models import ConversationMessage
+            from orion.db.session import get_session
+
+            with get_session() as session:
+                messages = list(
+                    session.exec(
+                        select(ConversationMessage)
+                        .order_by(
+                            ConversationMessage.timestamp.desc()  # type: ignore[union-attr]
+                        )
+                        .limit(50)
+                    )
+                )
+                # Return in chronological order
+                messages.reverse()
+                return [
+                    {
+                        "id": m.id,
+                        "session_id": m.session_id,
+                        "role": m.role,
+                        "content": m.content,
+                        "timestamp": m.timestamp.isoformat(),
+                    }
+                    for m in messages
+                ]
+        except Exception:
+            return []
+
+    # ── Health ────────────────────────────────────────────────────
+
     @router.get("/health")
     async def health():
-        from bridge import openclaw_client
+        from bridge import get_openclaw_client
         from orion.config import config
 
         openclaw_ok = False
         try:
-            openclaw_ok = await openclaw_client.health_check()
+            client = get_openclaw_client()
+            openclaw_ok = await client.health_check()
         except Exception:
             pass
 
@@ -76,4 +169,3 @@ def build_routes(engine: ExecutionEngine, store: InMemoryTaskStore, events: Even
         }
 
     return router
-

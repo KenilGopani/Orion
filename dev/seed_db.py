@@ -153,20 +153,61 @@ def seed() -> None:
         created_at=t3_created,
     )
 
+    # ── Conversation messages ─────────────────────────────────────
+    from orion.db.models import ConversationMessage
+
+    session_id = "seed-session-001"
+    conv_base = _utc_now() - timedelta(hours=1)
+
+    conv_msgs = [
+        ConversationMessage(
+            id=_id(), session_id=session_id, role="user",
+            content="Check my email and tell me what's urgent",
+            timestamp=conv_base,
+        ),
+        ConversationMessage(
+            id=_id(), session_id=session_id, role="assistant",
+            content="You have 3 unread emails, sir. The most urgent is from Priya about tomorrow's deadline. The other two are a GitHub notification and a newsletter.",
+            timestamp=conv_base + timedelta(seconds=4),
+        ),
+        ConversationMessage(
+            id=_id(), session_id=session_id, role="user",
+            content="Send a WhatsApp to Priya saying I'll be 10 minutes late",
+            timestamp=conv_base + timedelta(minutes=5),
+        ),
+        ConversationMessage(
+            id=_id(), session_id=session_id, role="assistant",
+            content="That will require your approval before I send it, sir. Please approve the action in the dashboard.",
+            timestamp=conv_base + timedelta(minutes=5, seconds=2),
+        ),
+        ConversationMessage(
+            id=_id(), session_id=session_id, role="user",
+            content="Remember that Priya's project deadline is June 20th",
+            timestamp=conv_base + timedelta(minutes=10),
+        ),
+        ConversationMessage(
+            id=_id(), session_id=session_id, role="assistant",
+            content="Noted, sir. I'll remember that for future reference.",
+            timestamp=conv_base + timedelta(minutes=10, seconds=1),
+        ),
+    ]
+
     # ── Insert everything ─────────────────────────────────────────
     with get_session() as session:
         for obj in [
             task1, step1, event1a, event1b,
             task2, step2, approval2, event2a, event2b,
             task3, step3, event3,
+            *conv_msgs,
         ]:
             session.add(obj)
         session.commit()
 
-    print("✓ Seeded 3 tasks into the database:")
+    print("✓ Seeded database for dashboard development:")
     print(f"  • {t1_id[:8]}… — SUCCEEDED (email check)")
     print(f"  • {t2_id[:8]}… — AWAITING_APPROVAL (WhatsApp)")
     print(f"  • {t3_id[:8]}… — RUNNING (write file)")
+    print(f"  • {len(conv_msgs)} conversation messages")
     print(f"\nDatabase: ~/.orion/orion.db")
 
 
