@@ -180,12 +180,13 @@ Orion/
 │   ├── tools/             24 tool declarations, 8 domains; _mcp.py generates
 │   │                      the voice LLM's MCP surface from the registry;
 │   │                      _safe.py: single-line args, quoting, URL schemes
-│   ├── services/          memory · conversation · scheduler
+│   ├── services/          memory · conversation · scheduler · outcomes
+│   ├── voice_outcomes.py  Speaks approval outcomes in the voice session
 │   └── api/               FastAPI routes; security.py: install token, Host check
 │
 ├── dashboard/             Vite + React + TS operator UI
 ├── dev/                   Mock OpenClaw · text agent · DB seeder
-└── tests/                 83 tests
+└── tests/                 93 tests
 ```
 
 ---
@@ -292,9 +293,29 @@ sentence, so a failure can never be reported as success.
 `send_whatsapp`, `send_telegram`, `send_slack`, `create_event`,
 `reschedule_event`, `create_project`, `run_code`, `write_file`, `run_command`.
 
-> ⚠️ The voice agent's turn **ends** at "waiting for your approval". The same
-> engine later executes the approved step, but nothing notifies the voice
-> session of the outcome. See §12.
+The voice turn **ends** at "waiting for your approval". When you later approve
+or reject in the dashboard, the voice session hears about it:
+
+```mermaid
+sequenceDiagram
+    participant D as Dashboard
+    participant E as ExecutionEngine
+    participant ES as Event store
+    participant API as /api/events/outcomes (SSE)
+    participant V as Voice agent
+    V->>API: subscribe at session start
+    D->>E: POST /api/tasks/{id}/approve (+ token)
+    E->>ES: task_succeeded
+    ES->>API: subscriber callback → outcome_for()
+    API-->>V: {"speech": "The WhatsApp message you approved went through. …"}
+    V->>V: wait until neither side is speaking
+    V-->>V: session.say(speech)
+```
+
+`orion/services/outcomes.py` words the update from the tool's declaration
+(approved and done, approved but failed, or rejected); only tasks that went
+through approval are announced. `orion/voice_outcomes.py` is the listener;
+`dev/listen_outcomes.py` prints the same announcements in a terminal.
 
 ---
 
@@ -590,7 +611,7 @@ make dev      # text agent against mock OpenClaw
 demands credentials.
 
 ```bash
-make test     # 83 tests
+make test     # 93 tests
 make lint     # ruff + mypy, both clean
 ```
 
@@ -619,12 +640,11 @@ you broke them.
    from the registry and runs through the engine; tests check that each one
    creates a task and that every tool's safety level matches a reviewed table.
 
-4. **Voice never learns the approval outcome.** The turn ends at "waiting for
-   your approval"; the approved step runs later with no callback to the voice
-   session.
-   Do **not** fix this with a voice "approve" tool: the same LLM that proposed
-   the action (possibly steered by an email it just read) could then approve it,
-   which defeats the gate. Approval must come from a channel the LLM can't drive.
+4. ✅ **Resolved (#18).** The voice session used to never learn an approval's
+   outcome. It now subscribes to `/api/events/outcomes` and says what happened
+   at the next pause (§5.2). Approval itself deliberately stays out of voice's
+   reach: a voice "approve" tool would let the LLM that proposed an action
+   (possibly steered by an email it just read) approve it too.
 
 5. ✅ **Resolved (#15).** `GET /api/scheduler/jobs` used to spin up a throwaway
    scheduler because the real one lived in another process. It now reads the

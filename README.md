@@ -13,7 +13,8 @@ A **voice-first AI agent** that uses [LiveKit](https://livekit.io) for the voice
 What separates Orion from a chatbot with plugins is the **approval gate**: every
 tool carries a safety level, and anything irreversible — sending a message,
 overwriting a file, running a shell command — halts and waits for a human before
-it executes. Every decision is written to an append-only event log.
+it executes. Approve it in the dashboard and Orion tells you, by voice, whether it
+went through. Every decision is written to an append-only event log.
 
 > 🔒 **Security model:** [SECURITY.md](SECURITY.md) covers the threat model, what
 > Orion mitigates (prompt injection, CSRF, DNS rebinding) and what it can't.
