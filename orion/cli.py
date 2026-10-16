@@ -4,6 +4,7 @@
     orion up              API + MCP tools + scheduler + dashboard, plus the voice agent
     orion up --no-voice   everything except the voice agent
     orion openclaw-config least-privilege OpenClaw agents + safety check
+    orion parakeet-server local Parakeet speech-to-text (Apple Silicon)
 """
 
 from __future__ import annotations
@@ -89,6 +90,15 @@ def _openclaw_config(args: argparse.Namespace) -> int:
     return 0
 
 
+def _parakeet_server(args: argparse.Namespace) -> int:
+    from orion.speech.parakeet_server import create_parakeet_app, load_parakeet
+
+    app = create_parakeet_app(load_parakeet(args.model), model_id=args.model)
+    logger.info("Parakeet STT on http://%s:%d/v1 — set STT_PROVIDER=parakeet_local", args.host, args.port)
+    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(
         level=logging.INFO,
@@ -108,6 +118,15 @@ def main(argv: list[str] | None = None) -> int:
         help="print least-privilege OpenClaw agent definitions and check the current config",
     )
     oc.set_defaults(handler=_openclaw_config)
+
+    pk = commands.add_parser(
+        "parakeet-server",
+        help="run the local Parakeet speech-to-text server (Apple Silicon)",
+    )
+    pk.add_argument("--host", default="127.0.0.1", help="interface to bind (default: 127.0.0.1)")
+    pk.add_argument("--port", type=int, default=8090, help="port (default: 8090)")
+    pk.add_argument("--model", default=config.parakeet_model, help="Parakeet model id")
+    pk.set_defaults(handler=_parakeet_server)
 
     args = parser.parse_args(argv)
     return int(args.handler(args))

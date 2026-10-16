@@ -51,8 +51,8 @@ class Config:
     tts_provider: str = field(default_factory=lambda: os.getenv("TTS_PROVIDER", "kokoro"))
 
     # ── Local (free) speech servers ───────────────────────────────
-    # Both speak the OpenAI-compatible API, so they reuse the openai plugin
-    # and need no extra Python dependencies.
+    # All speak the OpenAI-compatible API, so they reuse the openai plugin
+    # and need no extra Python dependencies in the voice agent.
     whisper_local_url: str = field(
         default_factory=lambda: os.getenv("WHISPER_LOCAL_URL", "http://127.0.0.1:8080/v1")
     )
@@ -64,6 +64,24 @@ class Config:
     )
     kokoro_voice: str = field(
         default_factory=lambda: os.getenv("KOKORO_VOICE", "am_michael")
+    )
+    # NVIDIA Parakeet via `orion parakeet-server` (Apple Silicon; English and
+    # ~25 European languages; use whisper_local for others, e.g. Hindi).
+    parakeet_local_url: str = field(
+        default_factory=lambda: os.getenv("PARAKEET_LOCAL_URL", "http://127.0.0.1:8090/v1")
+    )
+    parakeet_model: str = field(
+        default_factory=lambda: os.getenv("PARAKEET_MODEL", "mlx-community/parakeet-tdt-0.6b-v3")
+    )
+    # mlx-audio's server (Apple Silicon): Kokoro by default, or e.g. Qwen3-TTS.
+    mlx_audio_url: str = field(
+        default_factory=lambda: os.getenv("MLX_AUDIO_URL", "http://127.0.0.1:8881/v1")
+    )
+    mlx_audio_model: str = field(
+        default_factory=lambda: os.getenv("MLX_AUDIO_MODEL", "mlx-community/Kokoro-82M-bf16")
+    )
+    mlx_audio_voice: str = field(
+        default_factory=lambda: os.getenv("MLX_AUDIO_VOICE", "af_heart")
     )
 
     # ── API keys ──────────────────────────────────────────────────

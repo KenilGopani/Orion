@@ -97,6 +97,19 @@ def _build_stt():
             base_url=config.whisper_local_url,
             api_key="local",  # ignored by local servers, but the client requires a value
         )
+    elif STT_PROVIDER == "parakeet_local":
+        logger.info(
+            "STT → local Parakeet (%s @ %s)",
+            config.parakeet_model,
+            config.parakeet_local_url,
+        )
+        # `orion parakeet-server` speaks the OpenAI transcription API. Like
+        # Whisper it's non-streaming: LiveKit segments audio with VAD per turn.
+        return lk_openai.STT(
+            model=config.parakeet_model,
+            base_url=config.parakeet_local_url,
+            api_key="local",  # ignored by the local server, but the client requires a value
+        )
     elif STT_PROVIDER == "sarvam":
         logger.info("STT → Sarvam Saaras v3")
         return sarvam.STT(
@@ -171,6 +184,23 @@ def _build_tts():
             voice=config.kokoro_voice,
             base_url=config.kokoro_url,
             api_key="local",  # ignored by local servers, but the client requires a value
+            speed=TTS_SPEED,
+        )
+    elif TTS_PROVIDER == "mlx_audio":
+        logger.info(
+            "TTS → mlx-audio (%s, %s @ %s)",
+            config.mlx_audio_model,
+            config.mlx_audio_voice,
+            config.mlx_audio_url,
+        )
+        # mlx-audio's OpenAI-compatible server. WAV, because mlx-audio needs
+        # ffmpeg for compressed formats and the plugin's default is MP3.
+        return lk_openai.TTS(
+            model=config.mlx_audio_model,
+            voice=config.mlx_audio_voice,
+            base_url=config.mlx_audio_url,
+            api_key="local",  # ignored by the local server, but the client requires a value
+            response_format="wav",
             speed=TTS_SPEED,
         )
     elif TTS_PROVIDER == "sarvam":
@@ -270,6 +300,7 @@ def _endpointing_delay() -> float:
         "sarvam": 0.07,
         "whisper": 0.3,
         "whisper_local": 0.3,
+        "parakeet_local": 0.2,
         "groq": 0.3,
         "deepgram": 0.2,
     }.get(STT_PROVIDER, 0.1)
