@@ -182,13 +182,14 @@ Orion/
 │   ├── tools/             24 tool declarations, 8 domains; _mcp.py generates
 │   │                      the voice LLM's MCP surface from the registry;
 │   │                      _safe.py: single-line args, quoting, URL schemes
+│   ├── evals/             tool-selection eval + latency benchmark
 │   ├── services/          memory · conversation · scheduler · outcomes
 │   ├── voice_outcomes.py  Speaks approval outcomes in the voice session
 │   └── api/               FastAPI routes; security.py: install token, Host check
 │
 ├── dashboard/             Vite + React + TS operator UI
 ├── dev/                   Mock OpenClaw · text agent · DB seeder
-└── tests/                 93 tests
+└── tests/                 122 tests
 ```
 
 ---
@@ -629,12 +630,14 @@ make dev      # text agent against mock OpenClaw
 | `dev/mock_openclaw.py` | Fake OpenClaw on :18789; keyword-matched replies; also serves mock JSON *plans* so the planner works offline |
 | `dev/text_agent.py` | Terminal Orion — full engine, no voice. Commands: `tasks`, `events`, `memory`, `health`, `exit`; prompts interactively on approval |
 | `dev/seed_db.py` | Realistic fake tasks for dashboard work |
+| `orion eval` / `make eval` | Tool-selection accuracy (51 cases, incl. prompt injection) for any LLM provider |
+| `orion bench` / `make bench` | Per-stage STT / LLM / TTS latency and memory on this machine |
 
 `config.validate()` returns immediately when `DEV_MODE=true`, so nothing
 demands credentials.
 
 ```bash
-make test     # 93 tests
+make test     # 122 tests
 make lint     # ruff + mypy, both clean
 ```
 

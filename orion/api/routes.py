@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -99,7 +100,7 @@ def build_routes(runtime: Runtime, api_token: str) -> APIRouter:
         return events.list_events(task_id)
 
     @router.get("/events/outcomes")
-    async def stream_outcomes():
+    async def stream_outcomes() -> StreamingResponse:
         """SSE stream of approval outcomes, each with a sentence to speak.
 
         The voice agent subscribes so it can say "The WhatsApp message you
@@ -118,7 +119,7 @@ def build_routes(runtime: Runtime, api_token: str) -> APIRouter:
 
         unsubscribe = events.subscribe(on_event)
 
-        async def outcome_stream():
+        async def outcome_stream() -> AsyncIterator[str]:
             try:
                 yield ": connected\n\n"
                 while True:

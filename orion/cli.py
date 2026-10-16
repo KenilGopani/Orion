@@ -5,6 +5,8 @@
     orion up --no-voice   everything except the voice agent
     orion openclaw-config least-privilege OpenClaw agents + safety check
     orion parakeet-server local Parakeet speech-to-text (Apple Silicon)
+    orion eval            tool-selection accuracy for the configured LLM
+    orion bench           per-stage latency and memory on this machine
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ import logging
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 import uvicorn
 
@@ -99,6 +102,55 @@ def _parakeet_server(args: argparse.Namespace) -> int:
     return 0
 
 
+def _eval(args: argparse.Namespace) -> int:
+    import asyncio
+
+    from orion.evals import voice_system_prompt, voice_tools
+    from orion.evals.llm import choose_tools
+    from orion.evals.tool_selection import CASES_PATH, load_cases, report, run_cases
+    from orion.llm import resolve
+
+    spec = resolve(args.provider)
+    if spec.requires_key and not spec.api_key():
+        print(f"{spec.api_key_env} is not set; it's required for provider {spec.name!r}.", file=sys.stderr)
+        return 2
+    cases = load_cases(args.cases or CASES_PATH)
+    if args.limit:
+        cases = cases[: args.limit]
+
+    async def run() -> str:
+        tools, safety = await voice_tools()
+        system = voice_system_prompt()
+        results = await run_cases(
+            cases, lambda turns: choose_tools(spec, system, turns, tools), safety,
+            concurrency=args.concurrency,
+        )
+        return report(spec.name, spec.model, results)
+
+    print(f"Running {len(cases)} cases against {spec.name} / {spec.model}…", file=sys.stderr)
+    text = asyncio.run(run())
+    print(text)
+    if args.output:
+        args.output.write_text(text, encoding="utf-8")
+    return 0
+
+
+def _bench(args: argparse.Namespace) -> int:
+    import asyncio
+
+    from orion.evals.bench import bench_report, machine_info, run_bench
+
+    stages = [s.strip() for s in args.stages.split(",") if s.strip()]
+    audio = args.audio.read_bytes() if args.audio else None
+    print(f"Benchmarking {', '.join(stages)} ({args.runs} runs each)…", file=sys.stderr)
+    results = asyncio.run(run_bench(config, stages, max(args.runs, 1), audio))
+    text = bench_report(results, machine_info(), args.runs)
+    print(text)
+    if args.output:
+        args.output.write_text(text, encoding="utf-8")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(
         level=logging.INFO,
@@ -127,6 +179,21 @@ def main(argv: list[str] | None = None) -> int:
     pk.add_argument("--port", type=int, default=8090, help="port (default: 8090)")
     pk.add_argument("--model", default=config.parakeet_model, help="Parakeet model id")
     pk.set_defaults(handler=_parakeet_server)
+
+    ev = commands.add_parser("eval", help="tool-selection accuracy for the configured LLM provider")
+    ev.add_argument("--provider", default=config.llm_provider, help="LLM provider (default: LLM_PROVIDER)")
+    ev.add_argument("--cases", type=Path, default=None, help="cases file (default: evals/tool_selection.jsonl)")
+    ev.add_argument("--limit", type=int, default=0, help="run only the first N cases")
+    ev.add_argument("--concurrency", type=int, default=4, help="parallel requests (use 1 for local models)")
+    ev.add_argument("--output", type=Path, default=None, help="also write the markdown report here")
+    ev.set_defaults(handler=_eval)
+
+    bn = commands.add_parser("bench", help="per-stage latency and memory on this machine")
+    bn.add_argument("--stages", default="stt,llm,tts", help="comma-separated: stt,llm,tts")
+    bn.add_argument("--runs", type=int, default=3, help="runs per stage; the first is reported as cold")
+    bn.add_argument("--audio", type=Path, default=None, help="16-bit PCM WAV to transcribe (default: macOS say)")
+    bn.add_argument("--output", type=Path, default=None, help="also write the markdown report here")
+    bn.set_defaults(handler=_bench)
 
     args = parser.parse_args(argv)
     return int(args.handler(args))

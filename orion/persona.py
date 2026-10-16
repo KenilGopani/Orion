@@ -14,14 +14,15 @@ from orion.config import config
 _PROMPT_DIR = Path(__file__).resolve().parent / "prompts"
 
 
-def get_system_prompt() -> str:
+def get_system_prompt(include_memories: bool = True) -> str:
     """
     Return the fully interpolated Orion system prompt.
 
     The template file uses ``{user_name}`` as a placeholder that is
     replaced with the configured ``ORION_USER_NAME`` env var.
 
-    If there are stored memories, they are appended as context.
+    If there are stored memories, they are appended as context. Evals pass
+    ``include_memories=False`` so results don't depend on (or read) a user's data.
     """
     template_path = _PROMPT_DIR / "system_prompt.txt"
 
@@ -36,6 +37,9 @@ def get_system_prompt() -> str:
         )
 
     prompt = template.format(user_name=config.user_name)
+
+    if not include_memories:
+        return prompt
 
     # Inject stored memories
     try:
