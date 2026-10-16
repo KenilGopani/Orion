@@ -34,56 +34,24 @@ async def _extract_key_value(fact: str) -> tuple[str, str]:
     if config.dev_mode:
         return _heuristic_extract(fact)
 
-    # Try LLM extraction
+    # Try LLM extraction — provider-neutral, works with any configured backend
     try:
-        import httpx
         import json
 
-        from orion.core.planner import _get_api_key, _PROVIDER_URLS, _PROVIDER_MODELS
+        from orion.llm import complete_text
 
-        api_key = _get_api_key(config.llm_provider)
-        if not api_key:
-            return _heuristic_extract(fact)
-
-        url = _PROVIDER_URLS.get(config.llm_provider)
-        model = _PROVIDER_MODELS.get(config.llm_provider)
-
-        if not url or not model:
-            return _heuristic_extract(fact)
-
-        payload = {
-            "model": model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        'Extract a short key and value from this fact. '
-                        'Return ONLY JSON: {"key": "...", "value": "..."}\n'
-                        'Example: "My gym password is 1234" → '
-                        '{"key": "gym password", "value": "1234"}'
-                    ),
-                },
-                {"role": "user", "content": fact},
-            ],
-            "temperature": 0.0,
-        }
-
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.post(
-                url,
-                json=payload,
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {api_key}",
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-
-        raw = (
-            data.get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "")
+        raw = await complete_text(
+            system=(
+                'Extract a short key and value from this fact. '
+                'Return ONLY JSON: {"key": "...", "value": "..."}\n'
+                'Example: "My standup is at 10am on weekdays" → '
+                '{"key": "standup", "value": "10am on weekdays"}'
+            ),
+            user=fact,
+            provider=config.llm_provider,
+            temperature=0.0,
+            max_tokens=256,
+            timeout=10,
         )
 
         # Strip markdown fences
