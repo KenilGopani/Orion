@@ -10,6 +10,7 @@ Development utilities for working on Orion without external dependencies.
 |---|---|---|
 | `mock_openclaw.py` | Fake OpenClaw server with hardcoded responses | Real OpenClaw daemon |
 | `text_agent.py` | CLI interface for testing the engine via typed text | LiveKit voice agent |
+| `listen_outcomes.py` | Prints the approval outcomes the voice agent would speak | Voice announcements |
 
 ---
 
@@ -68,3 +69,17 @@ A terminal-based Orion interface that tests the full execution engine:
 - **Approval flow**: When a tool requires approval (e.g., `send_email`), the agent prompts you interactively
 
 - **No dependencies on**: LiveKit, STT, LLM, TTS, or any API keys
+
+---
+
+## Outcome Listener (`listen_outcomes.py`)
+
+Hear what the voice agent would say after you approve or reject something,
+without audio. With `make up` running:
+
+```bash
+uv run python dev/listen_outcomes.py
+```
+
+Approve or reject a task in the dashboard and the announcement appears, e.g.
+`Orion: The WhatsApp message you approved went through.`
