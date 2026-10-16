@@ -13,6 +13,7 @@ Starts on port 18789 — the same port as the real OpenClaw gateway.
 
 from __future__ import annotations
 
+import json
 import random
 import re
 from datetime import datetime
@@ -155,9 +156,6 @@ _TOOL_MAP: dict[str, tuple[str, dict]] = {
     "time": ("echo_tool", {"message": ""}),
 }
 
-import json as _json
-
-
 def _mock_plan(user_message: str) -> str:
     """Generate a mock JSON plan based on keywords in the user's intent."""
     lower = user_message.lower()
@@ -225,7 +223,7 @@ def _mock_plan(user_message: str) -> str:
         "reasoning": f"Decomposed '{user_message[:60]}' into {len(steps)} step(s)",
         "steps": steps,
     }
-    return _json.dumps(plan)
+    return json.dumps(plan)
 
 
 # ---------------------------------------------------------------------------

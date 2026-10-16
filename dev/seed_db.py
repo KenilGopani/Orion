@@ -208,7 +208,7 @@ def seed() -> None:
     print(f"  • {t2_id[:8]}… — AWAITING_APPROVAL (WhatsApp)")
     print(f"  • {t3_id[:8]}… — RUNNING (write file)")
     print(f"  • {len(conv_msgs)} conversation messages")
-    print(f"\nDatabase: ~/.orion/orion.db")
+    print("\nDatabase: ~/.orion/orion.db")
 
 
 if __name__ == "__main__":
