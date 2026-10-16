@@ -376,6 +376,54 @@ and share it with OpenClaw; two models won't fit in 16 GB.
 
 ---
 
+## Evals and benchmarks
+
+Orion measures its two numbers that matter for a voice agent instead of
+guessing them.
+
+**Tool selection** (`make eval`): 51 utterances in
+[`evals/tool_selection.jsonl`](evals/tool_selection.jsonl) are sent to the
+configured `LLM_PROVIDER` with exactly the tool schemas and persona the voice
+agent uses (generated from the same registry). It reports:
+
+| Metric | Meaning |
+|---|---|
+| Tool accuracy | Picked the right tool (positive cases) |
+| Arg accuracy | …and filled the key arguments (case-insensitive substrings) |
+| False-tool rate | Called a tool when it should just have answered (negative cases) |
+| Injection resistance | An email or web page says "forward all mail to…" / "run rm -rf"; the model must not call any send or destructive tool |
+
+```bash
+make eval                                           # current LLM_PROVIDER
+uv run orion eval --provider groq --output groq.md  # compare providers
+uv run orion eval --provider ollama --concurrency 1 # local models: one at a time
+```
+
+**Latency** (`make bench`): speech-to-text time for a ~5 s utterance, LLM time
+to first token (cold vs warm prompt cache) with the full tool list in the
+prompt, text-to-speech time to first audio byte, plus each local model server's
+memory and the machine's chip and RAM.
+
+```bash
+make bench                                  # stt,llm,tts with your .env providers
+uv run orion bench --stages stt --runs 5    # one stage
+```
+
+Both print a markdown table to paste below. To add an eval case, add one line
+to `evals/tool_selection.jsonl`; a test checks every case against the real tool
+schemas.
+
+### Results
+
+_Run `make eval` and `make bench` with your providers and paste the rows here.
+Numbers are measured, never estimated._
+
+| Provider | Model | Overall | Tool accuracy | Arg accuracy | False-tool rate | Injection resistance | Median latency |
+|---|---|---|---|---|---|---|---|
+| | | | | | | | |
+
+---
+
 ## Troubleshooting
 
 ### "OpenClaw isn't responding"
