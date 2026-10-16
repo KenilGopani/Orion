@@ -8,6 +8,15 @@ A **voice-first AI agent** that uses [LiveKit](https://livekit.io) for the voice
 > **"Orion, message Priya on WhatsApp that I'll be 10 minutes late."**
 > **"Orion, what's on my calendar tomorrow?"**
 
+What separates Orion from a chatbot with plugins is the **approval gate**: every
+tool carries a safety level, and anything irreversible — sending a message,
+overwriting a file, running a shell command — halts and waits for a human before
+it executes. Every decision is written to an append-only event log.
+
+> 📖 **New to the codebase?** Read **[ARCHITECTURE.md](ARCHITECTURE.md)** — a full
+> walkthrough of the request flows, the approval gate, every service and how they
+> interact, plus a candid list of known rough edges.
+
 ---
 
 ## How It Works
@@ -216,33 +225,98 @@ def register_all_tools(mcp):
 
 | Provider | Env Var | Model | Notes |
 |----------|---------|-------|-------|
-| **Groq** (default) | `GROQ_API_KEY` | whisper-large-v3 | Free tier, fast |
+| **whisper_local** (default) | *none* | whisper-large-v3-turbo | **Free**, fully local, no API key |
+| Groq | `GROQ_API_KEY` | whisper-large-v3 | Free tier, fast |
 | OpenAI Whisper | `OPENAI_API_KEY` | whisper-1 | Reliable, paid |
 | Sarvam | `SARVAM_API_KEY` | saaras:v3 | Good for Indian accents |
 | Deepgram | `DEEPGRAM_API_KEY` | nova-2 | Low latency |
 
 ### LLM (Language Model)
 
-| Provider | Env Var | Model | Notes |
-|----------|---------|-------|-------|
-| **Gemini** (default) | `GOOGLE_API_KEY` | gemini-2.5-flash | Free tier, fast |
-| OpenAI | `OPENAI_API_KEY` | gpt-4o | Best quality |
-| Groq | `GROQ_API_KEY` | llama-3.3-70b | Free, open source |
+| Provider | Alias | Env Var | Model | Notes |
+|----------|-------|---------|-------|-------|
+| **Gemini** (default) | `google` | `GOOGLE_API_KEY` | gemini-2.5-flash | Free tier, fast |
+| OpenAI | `chatgpt` | `OPENAI_API_KEY` | gpt-4o | Best general quality |
+| Claude | `anthropic` | `ANTHROPIC_API_KEY` | claude-sonnet-5 | Strongest tool use |
+| Groq | — | `GROQ_API_KEY` | llama-3.3-70b | Free tier, fastest |
+| Ollama | `local` | *none* | qwen2.5:7b | **Free**, fully local |
+
+Switching is one env var:
+
+```bash
+LLM_PROVIDER=claude     # or gemini / chatgpt / groq / ollama
+```
+
+All five are defined in a single registry at
+[`orion/llm/providers.py`](orion/llm/providers.py) — the voice agent, the task
+planner, and memory extraction all resolve from that one table, so adding a
+provider means adding one `ProviderSpec` and nothing else.
+
+Override a model without touching the registry:
+
+```bash
+ORION_LLM_MODEL=claude-opus-5
+```
+
+**Two transports.** Gemini, OpenAI, Groq and Ollama share one OpenAI-compatible
+HTTP path (the same code, a different `base_url`). Claude uses the official
+`anthropic` SDK and the native LiveKit Anthropic plugin — deliberately *not* an
+OpenAI-compatibility shim, since the Messages API is the supported path for tool
+use. The registry also records that Anthropic models reject `temperature`, so
+the shared client omits it for Claude instead of sending a parameter that would
+return a 400.
+
+**For a fully free stack**, install [Ollama](https://ollama.com) and pull a model:
+
+```bash
+ollama pull qwen2.5:7b
+```
+
+Then set `LLM_PROVIDER=ollama`. Combined with `whisper_local` and `kokoro`, Orion
+runs with **zero API keys** apart from LiveKit transport.
 
 ### TTS (Text-to-Speech)
 
 | Provider | Env Var | Voice | Notes |
 |----------|---------|-------|-------|
-| **ElevenLabs** (default) | `ELEVEN_API_KEY` | Adam (British) | Best quality |
+| **kokoro** (default) | *none* | am_michael | **Free**, fully local, no API key |
+| ElevenLabs | `ELEVEN_API_KEY` | Adam (British) | Best quality, 10k chars/mo free |
 | OpenAI | `OPENAI_API_KEY` | onyx | Good, composable |
 | Sarvam | `SARVAM_API_KEY` | rahul | Indian English |
 
 Set your preferred providers in `.env`:
 ```bash
-STT_PROVIDER=groq
+STT_PROVIDER=whisper_local
 LLM_PROVIDER=gemini
-TTS_PROVIDER=elevenlabs
+TTS_PROVIDER=kokoro
 ```
+
+### Running the free local speech stack
+
+The two local providers are OpenAI-compatible HTTP servers you run yourself, so
+they need **no extra Python dependencies** — the existing `openai` plugin just
+points at `localhost`.
+
+**Whisper STT** — [whisper.cpp](https://github.com/ggml-org/whisper.cpp) is
+Metal-accelerated on Apple Silicon:
+
+```bash
+whisper-server -m models/ggml-large-v3-turbo.bin --port 8080
+```
+
+**Kokoro TTS** — [kokoro-fastapi](https://github.com/remsky/Kokoro-FastAPI):
+
+```bash
+docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpu
+```
+
+Neither model streams, but LiveKit handles that automatically: it segments mic
+audio with Silero VAD before calling Whisper, and wraps Kokoro in a
+`tts.StreamAdapter` with a sentence tokenizer so playback starts after the first
+sentence rather than the full response.
+
+> **Note:** local STT/TTS removes the OpenAI/Groq/ElevenLabs keys, but LiveKit
+> Cloud credentials are still required for voice transport.
 
 ---
 
