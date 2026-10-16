@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 from tests.conftest import reset_test_db  # noqa: F401 — also sets up in-memory DB
 
 from orion.core.models import TaskStatus
-from orion.core.runtime import engine, events, run_runtime_send_email, store
+from orion.core.runtime import engine, events, run_gated_tool
 
 
 class RuntimeEmailAdapterTests(unittest.IsolatedAsyncioTestCase):
@@ -24,7 +24,9 @@ class RuntimeEmailAdapterTests(unittest.IsolatedAsyncioTestCase):
         mock_client = AsyncMock()
         mock_client.send_task.return_value = {"status": "success", "result": "sent"}
         with patch("orion.core.runtime.get_openclaw_client", return_value=mock_client):
-            task = await run_runtime_send_email(
+            task = await run_gated_tool(
+                "openclaw_send_email",
+                "Send email",
                 to="demo@example.com",
                 subject="Hello",
                 body="This should pause until approved",
@@ -35,7 +37,9 @@ class RuntimeEmailAdapterTests(unittest.IsolatedAsyncioTestCase):
         mock_client = AsyncMock()
         mock_client.send_task.return_value = {"status": "success", "result": "sent"}
         with patch("orion.core.runtime.get_openclaw_client", return_value=mock_client):
-            task = await run_runtime_send_email(
+            task = await run_gated_tool(
+                "openclaw_send_email",
+                "Send email",
                 to="demo@example.com",
                 subject="Hello",
                 body="Approval flow",

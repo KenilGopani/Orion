@@ -11,7 +11,7 @@ import logging
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlmodel import select
+from sqlmodel import col, select
 
 from orion.db.models import ConversationMessage
 from orion.db.session import get_session
@@ -55,7 +55,7 @@ class ConversationLogger:
                 session.exec(
                     select(ConversationMessage)
                     .where(ConversationMessage.session_id == self.session_id)
-                    .order_by(ConversationMessage.timestamp.desc())  # type: ignore[union-attr]
+                    .order_by(col(ConversationMessage.timestamp).desc())
                     .limit(limit)
                 )
             )

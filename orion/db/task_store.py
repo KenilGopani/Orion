@@ -8,9 +8,8 @@ used as a drop-in replacement.
 from __future__ import annotations
 
 import json
-from typing import Any
 
-from sqlmodel import select
+from sqlmodel import col, select
 
 from orion.core.models import (
     ApprovalRequest,
@@ -133,21 +132,21 @@ class PersistentTaskStore:
                 session.exec(
                     select(TaskStepRecord)
                     .where(TaskStepRecord.task_id == task_id)
-                    .order_by(TaskStepRecord.created_at)
+                    .order_by(col(TaskStepRecord.created_at))
                 )
             )
             return _record_to_task(task_rec, step_recs)
 
     def list_tasks(self) -> list[Task]:
         with get_session() as session:
-            task_recs = list(session.exec(select(TaskRecord).order_by(TaskRecord.created_at)))
+            task_recs = list(session.exec(select(TaskRecord).order_by(col(TaskRecord.created_at))))
             tasks: list[Task] = []
             for task_rec in task_recs:
                 step_recs = list(
                     session.exec(
                         select(TaskStepRecord)
                         .where(TaskStepRecord.task_id == task_rec.id)
-                        .order_by(TaskStepRecord.created_at)
+                        .order_by(col(TaskStepRecord.created_at))
                     )
                 )
                 tasks.append(_record_to_task(task_rec, step_recs))
@@ -240,7 +239,7 @@ class PersistentTaskStore:
                 session.exec(
                     select(ApprovalRecord)
                     .where(ApprovalRecord.task_id == task_id)
-                    .order_by(ApprovalRecord.created_at)
+                    .order_by(col(ApprovalRecord.created_at))
                 )
             )
             return [_record_to_approval(r) for r in recs]
@@ -251,7 +250,7 @@ class PersistentTaskStore:
                 session.exec(
                     select(ApprovalRecord)
                     .where(ApprovalRecord.task_id == task_id)
-                    .order_by(ApprovalRecord.created_at.desc())  # type: ignore[union-attr]
+                    .order_by(col(ApprovalRecord.created_at).desc())
                 )
             )
             for rec in recs:
@@ -266,6 +265,18 @@ class PersistentTaskStore:
                 raise KeyError(f"Approval {approval_id} not found")
             rec.approved_by = approved_by
             rec.approved_at = utc_now()
+            session.add(rec)
+            session.commit()
+            return _record_to_approval(rec)
+
+    def reject_approval(self, approval_id: str, rejected_by: str) -> ApprovalRequest:
+        # ``approved_by`` records who decided, whichever way they decided.
+        with get_session() as session:
+            rec = session.get(ApprovalRecord, approval_id)
+            if not rec:
+                raise KeyError(f"Approval {approval_id} not found")
+            rec.approved_by = rejected_by
+            rec.rejected_at = utc_now()
             session.add(rec)
             session.commit()
             return _record_to_approval(rec)

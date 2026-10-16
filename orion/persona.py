@@ -7,7 +7,6 @@ and interpolates runtime variables (user name, etc.).
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from orion.config import config
