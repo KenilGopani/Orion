@@ -1,0 +1,43 @@
+name: Bug report
+description: Something in Orion doesn't work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **Security issues:** please use a
+        [private security advisory](https://github.com/KenilGopani/Orion/security/advisories/new) instead.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. make dev
+        2. Type "send email to priya"
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Output of `orion up` (or `make dev`) around the problem.
+      render: text
+  - type: input
+    id: providers
+    attributes:
+      label: Providers
+      description: Your STT_PROVIDER / LLM_PROVIDER / TTS_PROVIDER
+      placeholder: parakeet_local / ollama (qwen3.5:4b) / kokoro
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: macOS 26, Apple M4 16 GB, Python 3.12, Orion commit abc1234

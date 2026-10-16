@@ -220,7 +220,7 @@ class ExecutionEngine:
                 task_id=task_id,
                 step=step,
                 tool_name=tool.name,
-                reason=f"Tool {tool.name} has safety level {tool.safety_level}",
+                reason=f"Tool {tool.name} has safety level {tool.safety_level.value}",
             )
             self._store.update_task_status(task_id, TaskStatus.AWAITING_APPROVAL)
             self._events.record(
