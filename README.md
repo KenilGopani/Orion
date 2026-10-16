@@ -1,5 +1,7 @@
 # Orion
 
+[![CI](https://github.com/KenilGopani/Orion/actions/workflows/ci.yml/badge.svg)](https://github.com/KenilGopani/Orion/actions/workflows/ci.yml)
+
 ### Advanced Voice-first AI Agent
 
 A **voice-first AI agent** that uses [LiveKit](https://livekit.io) for the voice pipeline and [OpenClaw](https://openclaw.ai) as the execution backbone. Talk to Orion naturally — he'll check your email, message your contacts, manage your calendar, run code, and more.
