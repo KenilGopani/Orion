@@ -19,6 +19,10 @@ class ApproveTaskRequest(BaseModel):
     approved_by: str = "human_operator"
 
 
+class RejectTaskRequest(BaseModel):
+    rejected_by: str = "human_operator"
+
+
 def build_routes(engine: ExecutionEngine, store: Any, events: Any):
     router = APIRouter()
 
@@ -51,21 +55,15 @@ def build_routes(engine: ExecutionEngine, store: Any, events: Any):
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @router.post("/tasks/{task_id}/reject")
-    async def reject_task(task_id: str):
-        """Reject a pending approval — marks the task as FAILED."""
-        task = store.get_task(task_id)
-        if not task:
-            raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
-        if task.status != TaskStatus.AWAITING_APPROVAL:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Task {task_id} is not awaiting approval (status: {task.status})",
-            )
-        updated = store.update_task_status(
-            task_id, TaskStatus.FAILED, error="Rejected by user"
-        )
-        events.record(task_id, "task_rejected", {"rejected_by": "dashboard_user"})
-        return updated
+    async def reject_task(task_id: str, request: RejectTaskRequest | None = None):
+        """Reject a pending approval — the step is skipped and the task FAILS."""
+        rejected_by = request.rejected_by if request else "human_operator"
+        try:
+            return engine.reject_task(task_id, rejected_by)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # ── Events & Streaming ────────────────────────────────────────
 
@@ -111,7 +109,7 @@ def build_routes(engine: ExecutionEngine, store: Any, events: Any):
     def list_conversations():
         """Return recent conversation messages across all sessions."""
         try:
-            from sqlmodel import select
+            from sqlmodel import col, select
             from orion.db.models import ConversationMessage
             from orion.db.session import get_session
 
@@ -120,7 +118,7 @@ def build_routes(engine: ExecutionEngine, store: Any, events: Any):
                     session.exec(
                         select(ConversationMessage)
                         .order_by(
-                            ConversationMessage.timestamp.desc()  # type: ignore[union-attr]
+                            col(ConversationMessage.timestamp).desc()
                         )
                         .limit(50)
                     )

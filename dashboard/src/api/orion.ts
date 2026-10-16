@@ -86,36 +86,47 @@ export interface SchedulerJob {
 
 // ── API Client ───────────────────────────────────────────────────
 
+/** Parse a JSON response, throwing on non-2xx so callers can't mistake an error for success. */
+async function json<T>(r: Response): Promise<T> {
+  if (!r.ok) {
+    const body = await r.json().catch(() => null);
+    throw new Error(body?.detail ?? `HTTP ${r.status}`);
+  }
+  return r.json();
+}
+
 export const orionApi = {
   health: (): Promise<HealthResponse> =>
-    fetch(`${API_BASE}/health`).then((r) => r.json()),
+    fetch(`${API_BASE}/health`).then(json<HealthResponse>),
 
   getTasks: (): Promise<Task[]> =>
-    fetch(`${API_BASE}/tasks`).then((r) => r.json()),
+    fetch(`${API_BASE}/tasks`).then(json<Task[]>),
 
   getTask: (id: string): Promise<Task> =>
-    fetch(`${API_BASE}/tasks/${id}`).then((r) => r.json()),
+    fetch(`${API_BASE}/tasks/${id}`).then(json<Task>),
 
   getTaskEvents: (id: string): Promise<RuntimeEvent[]> =>
-    fetch(`${API_BASE}/tasks/${id}/events`).then((r) => r.json()),
+    fetch(`${API_BASE}/tasks/${id}/events`).then(json<RuntimeEvent[]>),
 
   approveTask: (id: string): Promise<Task> =>
     fetch(`${API_BASE}/tasks/${id}/approve`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ approved_by: "dashboard_user" }),
-    }).then((r) => r.json()),
+    }).then(json<Task>),
 
   rejectTask: (id: string): Promise<Task> =>
     fetch(`${API_BASE}/tasks/${id}/reject`, {
       method: "POST",
-    }).then((r) => r.json()),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rejected_by: "dashboard_user" }),
+    }).then(json<Task>),
 
   getConversations: (): Promise<ConversationMessage[]> =>
-    fetch(`${API_BASE}/conversations`).then((r) => r.json()),
+    fetch(`${API_BASE}/conversations`).then(json<ConversationMessage[]>),
 
   getSchedulerJobs: (): Promise<SchedulerJob[]> =>
-    fetch(`${API_BASE}/scheduler/jobs`).then((r) => r.json()),
+    fetch(`${API_BASE}/scheduler/jobs`).then(json<SchedulerJob[]>),
 
   streamEvents: (
     id: string,

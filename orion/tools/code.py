@@ -4,6 +4,7 @@ Code tools — create projects, run scripts, open editor via OpenClaw.
 
 from __future__ import annotations
 from bridge import get_openclaw_client
+from orion.tools._gated import run_gated
 
 
 def register(mcp):
@@ -37,14 +38,19 @@ def register(mcp):
     async def run_code(code: str, language: str = "python") -> str:
         """
         Run a code snippet and return the output.
+        Requires approval before execution.
 
         Args:
             code: The code to execute.
             language: Programming language of the code.
         """
-        task = f"Run the following {language} code and tell me the output:\n{code}"
-        result = await get_openclaw_client().send_task(task)
-        return result["result"]
+        return await run_gated(
+            "openclaw_run_code",
+            f"Run {language} code ({len(code.splitlines())} lines)",
+            "The code",
+            code=code,
+            language=language,
+        )
 
     @mcp.tool()
     async def open_editor(path: str) -> str:

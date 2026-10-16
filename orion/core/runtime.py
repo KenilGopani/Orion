@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 from pydantic import BaseModel
 
 from bridge import get_openclaw_client
@@ -10,23 +13,6 @@ from orion.core.registry import ToolDefinition
 from orion.db.session import init_db
 from orion.db.task_store import PersistentTaskStore
 from orion.db.event_store import PersistentEventStore
-
-
-class OpenClawSendEmailInput(BaseModel):
-    to: str
-    subject: str
-    body: str
-
-
-async def _openclaw_send_email_handler(payload: OpenClawSendEmailInput) -> dict[str, str]:
-    task = (
-        f"Send an email to {payload.to} "
-        f"with subject '{payload.subject}' and body: {payload.body}"
-    )
-    result = await get_openclaw_client().send_task(task)
-    if result["status"] != "success":
-        raise RuntimeError(result["result"])
-    return {"message": result["result"]}
 
 # Ensure database tables exist before creating the stores
 init_db()
@@ -49,223 +35,182 @@ engine = ExecutionEngine(
     planner=planner,
 )
 
-registry.register(
-    ToolDefinition(
-        name="openclaw_send_email",
-        description="Send an email via OpenClaw through Orion runtime",
-        input_model=OpenClawSendEmailInput,
-        handler=_openclaw_send_email_handler,
-        safety_level=ToolSafetyLevel.EXTERNAL_SIDE_EFFECT,
+
+# ── OpenClaw-backed tools ─────────────────────────────────────────────────────
+#
+# Every tool that changes something outside Orion is declared here, once, with
+# its safety level. The MCP layer calls ``run_gated_tool`` and never talks to
+# OpenClaw directly for these, so the approval gate cannot be skipped.
+
+def _register_openclaw_tool(
+    name: str,
+    description: str,
+    input_model: type[BaseModel],
+    safety_level: ToolSafetyLevel,
+    render: Callable[[Any], str],
+) -> None:
+    """Register a tool whose handler sends ``render(payload)`` to OpenClaw."""
+
+    async def handler(payload: Any) -> dict[str, str]:
+        result = await get_openclaw_client().send_task(render(payload))
+        if result["status"] != "success":
+            raise RuntimeError(result["result"])
+        return {"message": result["result"]}
+
+    registry.register(
+        ToolDefinition(
+            name=name,
+            description=description,
+            input_model=input_model,
+            handler=handler,
+            safety_level=safety_level,
+        )
     )
-)
 
 
-async def run_runtime_send_email(to: str, subject: str, body: str) -> Task:
-    return await engine.create_task_with_steps(
-        user_intent=f"Send email to {to} with subject {subject}",
-        steps=[
-            PlannedStep(
-                name="send_email",
-                description="Send email through OpenClaw backend",
-                tool_name="openclaw_send_email",
-                tool_args={"to": to, "subject": subject, "body": body},
-            )
-        ],
-    )
+class OpenClawSendEmailInput(BaseModel):
+    to: str
+    subject: str
+    body: str
 
 
-class OpenClawSendWhatsAppInput(BaseModel):
+class OpenClawSendMessageInput(BaseModel):
     recipient: str
     message: str
 
-
-async def _openclaw_send_whatsapp_handler(payload: OpenClawSendWhatsAppInput) -> dict[str, str]:
-    task = f"Send a WhatsApp message to {payload.recipient}: {payload.message}"
-    result = await get_openclaw_client().send_task(task)
-    if result["status"] != "success":
-        raise RuntimeError(result["result"])
-    return {"message": result["result"]}
-
-
-registry.register(
-    ToolDefinition(
-        name="openclaw_send_whatsapp",
-        description="Send a WhatsApp message via OpenClaw through Orion runtime",
-        input_model=OpenClawSendWhatsAppInput,
-        handler=_openclaw_send_whatsapp_handler,
-        safety_level=ToolSafetyLevel.EXTERNAL_SIDE_EFFECT,
-    )
-)
-
-
-async def run_runtime_send_whatsapp(recipient: str, message: str) -> Task:
-    return await engine.create_task_with_steps(
-        user_intent=f"WhatsApp {recipient}: {message[:80]}",
-        steps=[
-            PlannedStep(
-                name="send_whatsapp",
-                description="Send WhatsApp message through OpenClaw backend",
-                tool_name="openclaw_send_whatsapp",
-                tool_args={"recipient": recipient, "message": message},
-            )
-        ],
-    )
-
-
-# ── write_file — DESTRUCTIVE (can overwrite any file) ────────────────────────
-
-class OpenClawWriteFileInput(BaseModel):
-    path: str
-    content: str
-
-
-async def _openclaw_write_file_handler(payload: OpenClawWriteFileInput) -> dict[str, str]:
-    task = f"Write the following content to the file at '{payload.path}':\n{payload.content}"
-    result = await get_openclaw_client().send_task(task)
-    if result["status"] != "success":
-        raise RuntimeError(result["result"])
-    return {"message": result["result"]}
-
-
-registry.register(
-    ToolDefinition(
-        name="openclaw_write_file",
-        description="Write content to a file via OpenClaw (approval-gated)",
-        input_model=OpenClawWriteFileInput,
-        handler=_openclaw_write_file_handler,
-        safety_level=ToolSafetyLevel.DESTRUCTIVE,
-    )
-)
-
-
-async def run_runtime_write_file(path: str, content: str) -> Task:
-    return await engine.create_task_with_steps(
-        user_intent=f"Write file: {path}",
-        steps=[
-            PlannedStep(
-                name="write_file",
-                description="Write file through OpenClaw backend",
-                tool_name="openclaw_write_file",
-                tool_args={"path": path, "content": content},
-            )
-        ],
-    )
-
-
-# ── run_command — DESTRUCTIVE (arbitrary shell execution) ─────────────────────
-
-class OpenClawRunCommandInput(BaseModel):
-    command: str
-
-
-async def _openclaw_run_command_handler(payload: OpenClawRunCommandInput) -> dict[str, str]:
-    task = f"Run the following shell command and tell me the output: {payload.command}"
-    result = await get_openclaw_client().send_task(task)
-    if result["status"] != "success":
-        raise RuntimeError(result["result"])
-    return {"message": result["result"]}
-
-
-registry.register(
-    ToolDefinition(
-        name="openclaw_run_command",
-        description="Execute a shell command via OpenClaw (approval-gated)",
-        input_model=OpenClawRunCommandInput,
-        handler=_openclaw_run_command_handler,
-        safety_level=ToolSafetyLevel.DESTRUCTIVE,
-    )
-)
-
-
-async def run_runtime_run_command(command: str) -> Task:
-    return await engine.create_task_with_steps(
-        user_intent=f"Run command: {command[:80]}",
-        steps=[
-            PlannedStep(
-                name="run_command",
-                description="Execute shell command through OpenClaw backend",
-                tool_name="openclaw_run_command",
-                tool_args={"command": command},
-            )
-        ],
-    )
-
-
-# ── send_telegram — EXTERNAL_SIDE_EFFECT ─────────────────────────────────────
-
-class OpenClawSendTelegramInput(BaseModel):
-    recipient: str
-    message: str
-
-
-async def _openclaw_send_telegram_handler(payload: OpenClawSendTelegramInput) -> dict[str, str]:
-    task = f"Send a Telegram message to {payload.recipient}: {payload.message}"
-    result = await get_openclaw_client().send_task(task)
-    if result["status"] != "success":
-        raise RuntimeError(result["result"])
-    return {"message": result["result"]}
-
-
-registry.register(
-    ToolDefinition(
-        name="openclaw_send_telegram",
-        description="Send a Telegram message via OpenClaw (approval-gated)",
-        input_model=OpenClawSendTelegramInput,
-        handler=_openclaw_send_telegram_handler,
-        safety_level=ToolSafetyLevel.EXTERNAL_SIDE_EFFECT,
-    )
-)
-
-
-async def run_runtime_send_telegram(recipient: str, message: str) -> Task:
-    return await engine.create_task_with_steps(
-        user_intent=f"Telegram {recipient}: {message[:80]}",
-        steps=[
-            PlannedStep(
-                name="send_telegram",
-                description="Send Telegram message through OpenClaw backend",
-                tool_name="openclaw_send_telegram",
-                tool_args={"recipient": recipient, "message": message},
-            )
-        ],
-    )
-
-
-# ── send_slack — EXTERNAL_SIDE_EFFECT ────────────────────────────────────────
 
 class OpenClawSendSlackInput(BaseModel):
     channel: str
     message: str
 
 
-async def _openclaw_send_slack_handler(payload: OpenClawSendSlackInput) -> dict[str, str]:
-    task = f"Send a Slack message to {payload.channel}: {payload.message}"
-    result = await get_openclaw_client().send_task(task)
-    if result["status"] != "success":
-        raise RuntimeError(result["result"])
-    return {"message": result["result"]}
+class OpenClawWriteFileInput(BaseModel):
+    path: str
+    content: str
 
 
-registry.register(
-    ToolDefinition(
-        name="openclaw_send_slack",
-        description="Send a Slack message via OpenClaw (approval-gated)",
-        input_model=OpenClawSendSlackInput,
-        handler=_openclaw_send_slack_handler,
-        safety_level=ToolSafetyLevel.EXTERNAL_SIDE_EFFECT,
-    )
+class OpenClawRunCommandInput(BaseModel):
+    command: str
+
+
+class OpenClawRunCodeInput(BaseModel):
+    code: str
+    language: str = "python"
+
+
+class OpenClawCreateEventInput(BaseModel):
+    title: str
+    date: str
+    time: str
+    duration: str = "1 hour"
+    attendees: str = ""
+
+
+class OpenClawRescheduleEventInput(BaseModel):
+    event_name: str
+    new_date: str = ""
+    new_time: str = ""
+
+
+def _render_create_event(p: OpenClawCreateEventInput) -> str:
+    task = f"Create a calendar event titled '{p.title}' on {p.date} at {p.time}, lasting {p.duration}."
+    if p.attendees:
+        task += f" Invite: {p.attendees}."
+    return task
+
+
+def _render_reschedule_event(p: OpenClawRescheduleEventInput) -> str:
+    task = f"Reschedule my '{p.event_name}' event"
+    if p.new_date:
+        task += f" to {p.new_date}"
+    if p.new_time:
+        task += f" at {p.new_time}"
+    return task + "."
+
+
+_EXTERNAL = ToolSafetyLevel.EXTERNAL_SIDE_EFFECT
+_DESTRUCTIVE = ToolSafetyLevel.DESTRUCTIVE
+
+_register_openclaw_tool(
+    "openclaw_send_email",
+    "Send an email via OpenClaw (approval-gated)",
+    OpenClawSendEmailInput,
+    _EXTERNAL,
+    lambda p: f"Send an email to {p.to} with subject '{p.subject}' and body: {p.body}",
+)
+_register_openclaw_tool(
+    "openclaw_send_whatsapp",
+    "Send a WhatsApp message via OpenClaw (approval-gated)",
+    OpenClawSendMessageInput,
+    _EXTERNAL,
+    lambda p: f"Send a WhatsApp message to {p.recipient}: {p.message}",
+)
+_register_openclaw_tool(
+    "openclaw_send_telegram",
+    "Send a Telegram message via OpenClaw (approval-gated)",
+    OpenClawSendMessageInput,
+    _EXTERNAL,
+    lambda p: f"Send a Telegram message to {p.recipient}: {p.message}",
+)
+_register_openclaw_tool(
+    "openclaw_send_slack",
+    "Send a Slack message via OpenClaw (approval-gated)",
+    OpenClawSendSlackInput,
+    _EXTERNAL,
+    lambda p: f"Send a Slack message to {p.channel}: {p.message}",
+)
+_register_openclaw_tool(
+    "openclaw_create_event",
+    "Create a calendar event, inviting attendees if given (approval-gated)",
+    OpenClawCreateEventInput,
+    _EXTERNAL,
+    _render_create_event,
+)
+_register_openclaw_tool(
+    "openclaw_reschedule_event",
+    "Move an existing calendar event, notifying its attendees (approval-gated)",
+    OpenClawRescheduleEventInput,
+    _EXTERNAL,
+    _render_reschedule_event,
+)
+_register_openclaw_tool(
+    "openclaw_write_file",
+    "Write content to a file via OpenClaw (approval-gated)",
+    OpenClawWriteFileInput,
+    _DESTRUCTIVE,
+    lambda p: f"Write the following content to the file at '{p.path}':\n{p.content}",
+)
+_register_openclaw_tool(
+    "openclaw_run_command",
+    "Execute a shell command via OpenClaw (approval-gated)",
+    OpenClawRunCommandInput,
+    _DESTRUCTIVE,
+    lambda p: f"Run the following shell command and tell me the output: {p.command}",
+)
+_register_openclaw_tool(
+    "openclaw_run_code",
+    "Execute a code snippet via OpenClaw (approval-gated)",
+    OpenClawRunCodeInput,
+    _DESTRUCTIVE,
+    lambda p: f"Run the following {p.language} code and tell me the output:\n{p.code}",
 )
 
 
-async def run_runtime_send_slack(channel: str, message: str) -> Task:
+async def run_gated_tool(tool_name: str, user_intent: str, **tool_args: Any) -> Task:
+    """Run a single registered tool as a task, under the approval gate.
+
+    This is the path voice tools use: the voice LLM has already chosen the
+    tool, so the planner is skipped, but the engine still enforces approval.
+    """
+    tool = registry.get(tool_name)
     return await engine.create_task_with_steps(
-        user_intent=f"Slack {channel}: {message[:80]}",
+        user_intent=user_intent,
         steps=[
             PlannedStep(
-                name="send_slack",
-                description="Send Slack message through OpenClaw backend",
-                tool_name="openclaw_send_slack",
-                tool_args={"channel": channel, "message": message},
+                name=tool_name.removeprefix("openclaw_"),
+                description=tool.description,
+                tool_name=tool_name,
+                tool_args=tool_args,
             )
         ],
     )

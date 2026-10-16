@@ -24,8 +24,8 @@ export default function ApprovalPanel({
       await orionApi.approveTask(taskId);
       onAction("Task approved — executing now", "success");
       onRefetch();
-    } catch {
-      onAction("Failed to approve task", "error");
+    } catch (err) {
+      onAction(`Failed to approve task: ${(err as Error).message}`, "error");
     } finally {
       setLoading(null);
     }
@@ -37,8 +37,8 @@ export default function ApprovalPanel({
       await orionApi.rejectTask(taskId);
       onAction("Task rejected", "success");
       onRefetch();
-    } catch {
-      onAction("Failed to reject task", "error");
+    } catch (err) {
+      onAction(`Failed to reject task: ${(err as Error).message}`, "error");
     } finally {
       setLoading(null);
     }

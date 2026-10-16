@@ -136,6 +136,24 @@ class ExecutionEngine:
         await self._run(task_id)
         return self._must_get_task(task_id)
 
+    def reject_task(self, task_id: str, rejected_by: str) -> Task:
+        task = self._must_get_task(task_id)
+        if task.status != TaskStatus.AWAITING_APPROVAL:
+            raise ValueError(f"Task {task_id} is not awaiting approval")
+
+        approval = self._approval_gate.reject_latest_for_task(task_id=task_id, rejected_by=rejected_by)
+        step = self._get_step(task_id, approval.step_id)
+        step.status = StepStatus.SKIPPED
+        step.error = f"Rejected by {rejected_by}"
+        self._store.update_step(task_id, step)
+        self._store.update_task_status(task_id, TaskStatus.FAILED, error=f"Rejected by {rejected_by}")
+        self._events.record(
+            task_id,
+            "task_rejected",
+            {"approval_id": approval.id, "rejected_by": rejected_by},
+        )
+        return self._must_get_task(task_id)
+
     async def _run(self, task_id: str) -> None:
         task = self._must_get_task(task_id)
 
@@ -174,9 +192,13 @@ class ExecutionEngine:
         self._events.record(task_id, "task_succeeded", {})
 
     async def _execute_step(self, task_id: str, step: TaskStep) -> None:
-        if not step.planned_tool_name:
-            raise KeyError(f"Step {step.id} has no planned tool")
-        tool = self._registry.get(step.planned_tool_name)
+        try:
+            if not step.planned_tool_name:
+                raise KeyError(f"Step {step.id} has no planned tool")
+            tool = self._registry.get(step.planned_tool_name)
+        except KeyError as exc:
+            self._fail_step(task_id, step, str(exc), tool_name=step.planned_tool_name)
+            return
 
         step.status = StepStatus.RUNNING
         step.updated_at = utc_now()
@@ -222,19 +244,22 @@ class ExecutionEngine:
                 {"step_id": step.id, "tool_name": tool.name, "output": output},
             )
         except Exception as exc:
-            step.status = StepStatus.FAILED
-            step.error = str(exc)
-            step.tool_result = ToolResult(success=False, error=str(exc))
-            if step.tool_call:
-                step.tool_call.finished_at = utc_now()
-            self._store.update_step(task_id, step)
-            self._store.update_task_status(task_id, TaskStatus.FAILED, error=str(exc))
-            self._events.record(
-                task_id,
-                "tool_failed",
-                {"step_id": step.id, "tool_name": tool.name, "error": str(exc)},
-            )
-            self._events.record(task_id, "task_failed", {"error": str(exc)})
+            self._fail_step(task_id, step, str(exc), tool_name=tool.name)
+
+    def _fail_step(self, task_id: str, step: TaskStep, error: str, *, tool_name: str | None) -> None:
+        step.status = StepStatus.FAILED
+        step.error = error
+        step.tool_result = ToolResult(success=False, error=error)
+        if step.tool_call:
+            step.tool_call.finished_at = utc_now()
+        self._store.update_step(task_id, step)
+        self._store.update_task_status(task_id, TaskStatus.FAILED, error=error)
+        self._events.record(
+            task_id,
+            "tool_failed",
+            {"step_id": step.id, "tool_name": tool_name, "error": error},
+        )
+        self._events.record(task_id, "task_failed", {"error": error})
 
     async def _plan(self, user_intent: str) -> list[PlannedStep]:
         """Decompose user intent into planned steps.

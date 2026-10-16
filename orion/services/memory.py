@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
-from sqlmodel import select
+from sqlmodel import col, or_, select
 
 from orion.db.models import MemoryRecord
 from orion.db.session import get_session
@@ -64,7 +64,7 @@ class MemoryService:
     def recall(self, topic: str) -> list[MemoryRecord]:
         """Search memories by topic using LIKE matching.
 
-        Returns all records whose key contains the topic substring.
+        Returns all records whose key or value contains the topic substring.
         """
         normalised = topic.strip().lower()
 
@@ -72,7 +72,10 @@ class MemoryService:
             results = list(
                 session.exec(
                     select(MemoryRecord).where(
-                        MemoryRecord.key.contains(normalised)  # type: ignore[union-attr]
+                        or_(
+                            col(MemoryRecord.key).contains(normalised),
+                            col(MemoryRecord.value).contains(normalised),
+                        )
                     )
                 )
             )
@@ -81,8 +84,14 @@ class MemoryService:
     # ── Forget ────────────────────────────────────────────────────
 
     def forget(self, key: str) -> bool:
-        """Delete a memory by key. Returns True if found and deleted."""
+        """Delete a memory by key. Returns True if found and deleted.
+
+        Falls back to a partial key match only when it is unambiguous, so a
+        vague topic never deletes an arbitrary memory.
+        """
         normalised = key.strip().lower()
+        if not normalised:
+            return False
 
         with get_session() as session:
             # Try exact match first
@@ -91,12 +100,15 @@ class MemoryService:
             ).first()
 
             if not record:
-                # Try LIKE match
-                record = session.exec(
-                    select(MemoryRecord).where(
-                        MemoryRecord.key.contains(normalised)  # type: ignore[union-attr]
+                matches = list(
+                    session.exec(
+                        select(MemoryRecord).where(
+                            col(MemoryRecord.key).contains(normalised)
+                        )
                     )
-                ).first()
+                )
+                if len(matches) == 1:
+                    record = matches[0]
 
             if record:
                 session.delete(record)
@@ -115,7 +127,7 @@ class MemoryService:
             return list(
                 session.exec(
                     select(MemoryRecord).order_by(
-                        MemoryRecord.updated_at.desc()  # type: ignore[union-attr]
+                        col(MemoryRecord.updated_at).desc()
                     )
                 )
             )
