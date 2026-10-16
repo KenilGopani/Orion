@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from sqlmodel import select
+from sqlmodel import col, select
 
 from orion.core.models import RuntimeEvent
 from orion.db.models import EventRecord
@@ -49,7 +49,7 @@ class PersistentEventStore:
                 session.exec(
                     select(EventRecord)
                     .where(EventRecord.task_id == task_id)
-                    .order_by(EventRecord.created_at)
+                    .order_by(col(EventRecord.created_at))
                 )
             )
             return [

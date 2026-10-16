@@ -44,7 +44,7 @@ async def _check_health() -> None:
     openclaw_ok = await openclaw_client.health_check()
     status = "✓ ONLINE" if openclaw_ok else "✗ OFFLINE"
 
-    print(f"\n  System Health:")
+    print("\n  System Health:")
     print(f"    DEV_MODE:       {config.dev_mode}")
     print(f"    MOCK_OPENCLAW:  {config.mock_openclaw}")
     print(f"    OpenClaw:       {status} ({config.openclaw_url})")
@@ -146,9 +146,9 @@ async def main() -> None:
                     output_text = result.output.get("message") or result.output.get("echoed") or str(result.output)
                     print(f"Orion: {output_text}")
                 else:
-                    print(f"Orion: Done, sir.")
+                    print("Orion: Done, sir.")
             else:
-                print(f"Orion: Task completed successfully, sir.")
+                print("Orion: Task completed successfully, sir.")
         elif task.status == "FAILED":
             print(f"Orion: I'm afraid that didn't work, sir. {task.error or ''}")
         elif task.status == "AWAITING_APPROVAL":
@@ -168,7 +168,7 @@ async def main() -> None:
                                 output_text = result.output.get("message", "Done, sir.")
                                 print(f"Orion: {output_text}")
                             else:
-                                print(f"Orion: Approved and executed, sir.")
+                                print("Orion: Approved and executed, sir.")
                         else:
                             print(f"Orion: Task status → {resumed.status}")
                     except Exception as exc:
