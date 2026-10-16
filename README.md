@@ -119,24 +119,29 @@ openclaw gateway --port 18789
 openclaw gateway status
 ```
 
-### 4. Run Orion (3 terminals)
+### 4. Run Orion
 
-**Terminal 1 — OpenClaw Gateway** (if not running as a service):
+Start the OpenClaw gateway (skip this if it runs as a service):
 ```bash
 openclaw gateway --port 18789
 ```
 
-**Terminal 2 — MCP Tool Server**:
+Then start Orion with one command:
 ```bash
-uv run orion_server
+make up        # or: uv run orion up
 ```
 
-**Terminal 3 — Voice Agent**:
-```bash
-uv run orion_voice
-```
+That single process serves everything on port 8000 and starts the voice agent:
 
-Then open the [LiveKit Agents Playground](https://agents-playground.livekit.io) and connect to your room. Start talking to Orion!
+| URL | What |
+|---|---|
+| http://127.0.0.1:8000/ | Dashboard: tasks, approvals, conversation log |
+| http://127.0.0.1:8000/api | REST API used by the dashboard |
+| http://127.0.0.1:8000/mcp/sse | MCP tools used by the voice agent |
+
+Use `orion up --no-voice` to run without the voice agent. Voice is also skipped, with a warning, when the LiveKit credentials aren't set.
+
+Open the [LiveKit Agents Playground](https://agents-playground.livekit.io) and connect to your room. Start talking to Orion!
 
 ---
 
@@ -146,8 +151,7 @@ Then open the [LiveKit Agents Playground](https://agents-playground.livekit.io) 
 orion/
 ├── pyproject.toml              # uv project config & dependencies
 ├── .env.example                # Environment template
-├── server.py                   # FastMCP server (uv run orion_server)
-├── agent.py                    # LiveKit voice agent (uv run orion_voice)
+├── agent.py                    # LiveKit voice agent (started by `orion up`)
 │
 ├── bridge/                     # OpenClaw communication layer
 │   ├── openclaw_client.py      # Async HTTP client → OpenClaw gateway
@@ -155,6 +159,8 @@ orion/
 │   └── response_parser.py     # Cleans output for TTS
 │
 └── orion/                     # Core application
+    ├── app.py                  # The one ASGI app: /api, /mcp, dashboard, scheduler
+    ├── cli.py                  # `orion up`
     ├── config.py               # Typed config from env vars
     ├── persona.py              # System prompt loader
     ├── prompts/
@@ -194,30 +200,33 @@ If you want the LLM to have a purpose-built tool with typed parameters:
 2. Follow the existing pattern:
 
 ```python
-from bridge import openclaw_client
+from bridge import get_openclaw_client
 
-def register(mcp):
+def register(mcp, runtime):
     @mcp.tool()
     async def play_music(song: str, artist: str = "") -> str:
         """Play a song."""
         task = f"Play '{song}'"
         if artist:
             task += f" by {artist}"
-        result = await openclaw_client.send_task(task)
+        result = await get_openclaw_client().send_task(task)
         return result["result"]
 ```
+
+`runtime` is the app's shared `Runtime`. A tool with side effects must call
+`run_gated(runtime, ...)` from `orion/tools/_gated.py` instead of OpenClaw directly.
 
 3. Register it in `orion/tools/__init__.py`:
 
 ```python
 from orion.tools import music  # add import
 
-def register_all_tools(mcp):
-    # ... existing registrations ...
-    music.register(mcp)  # add this line
+def register_all_tools(mcp, runtime):
+    for module in (email, messaging, ..., music):  # add your module here
+        module.register(mcp, runtime)
 ```
 
-4. Restart the MCP server. Done.
+4. Restart Orion (`make up`). Done.
 
 ---
 
@@ -339,11 +348,7 @@ openclaw logs --follow
 
 ### "MCP Server connection refused"
 
-Make sure the MCP server is running before starting the voice agent:
-```bash
-uv run orion_server  # Terminal 2 — must start first
-uv run orion_voice   # Terminal 3 — starts after
-```
+The voice agent reaches its tools at `http://127.0.0.1:8000/mcp/sse`. `orion up` starts both, so this usually means the voice agent was started on its own (`make voice`) without `make up` running, or `ORION_PORT` differs between the two.
 
 ### "LiveKit connection error"
 
@@ -370,12 +375,12 @@ LLM_PROVIDER=gemini  # or openai — Groq sometimes leaks tool calls
 COMPONENT         │ TECHNOLOGY         │ PORT / PROCESS
 ──────────────────┼────────────────────┼──────────────────────
 OpenClaw Gateway  │ Node.js            │ :18789 (daemon)
-FastMCP Server    │ Python / FastMCP   │ :8000  (orion_server)
-LiveKit Voice     │ Python / LiveKit   │ LiveKit Cloud
+Orion app         │ Python / FastAPI   │ :8000  (orion up: /, /api, /mcp/sse)
+LiveKit Voice     │ Python / LiveKit   │ child of orion up → LiveKit Cloud
 ──────────────────┼────────────────────┼──────────────────────
 
 VOICE FLOW:   Mic → VAD → STT → LLM → [Tool?] → TTS → Speaker
-TOOL FLOW:    LLM Tool Call → FastMCP → OpenClawClient → Gateway → Result
+TOOL FLOW:    LLM Tool Call → /mcp → ExecutionEngine → OpenClawClient → Gateway → Result
 ```
 
 ---

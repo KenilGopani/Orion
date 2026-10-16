@@ -100,16 +100,20 @@ stops and waits for a human.
 
 ## 3. Runtime topology
 
-Orion is **four separate processes** plus optional local model servers. They
-share state through a single SQLite file.
+Orion runs as **one app** (`orion up`) next to the OpenClaw daemon, plus
+optional local model servers.
 
 | Process | Start with | Port | Owns |
 |---|---|---|---|
 | OpenClaw gateway | `openclaw gateway --port 18789` | 18789 | All real-world execution |
-| MCP tool server | `make server` | 8000 (SSE) | Tool definitions, scheduler |
-| Voice agent | `make voice` | — | Mic/speaker, voice LLM |
-| Runtime API | `make api` | 8010 | REST for the dashboard |
-| Dashboard | `make dashboard` | 5173 | Operator UI |
+| **Orion app** | `make up` / `orion up` | 8000 | Engine, API (`/api`), MCP tools (`/mcp/sse`), scheduler, dashboard (`/`) |
+| ↳ Voice agent | child of `orion up` | — | Mic/speaker, voice LLM |
+
+The voice agent is still its own OS process, because LiveKit's worker model
+requires one, but `orion up` starts and stops it; `--no-voice` skips it. It
+holds no engine: it reaches the tools over `/mcp/sse` like any MCP client.
+During dashboard development, `make dashboard` runs Vite on 5173 and proxies
+`/api` to the app.
 
 Optional free local model servers (see §8, §9):
 
@@ -119,21 +123,19 @@ Optional free local model servers (see §8, §9):
 | kokoro-fastapi | 8880 | `TTS_PROVIDER=kokoro` |
 | Ollama | 11434 | `LLM_PROVIDER=ollama` |
 
-### The shared-state detail that surprises people
+### One runtime per process
 
-`orion/core/runtime.py` runs at **import time**. It calls `init_db()` and
-constructs `store`, `events`, `registry`, `approval_gate`, `planner`, and
-`engine` as module-level singletons.
+Nothing in Orion does work at import time. `create_app()` in `orion/app.py`
+calls `build_runtime(config)` **once**, which constructs `store`, `events`,
+`registry`, `approval_gate`, `planner` and `engine`, and passes that `Runtime`
+to the API routes and to every MCP tool module (`register(mcp, runtime)`). The
+app's lifespan creates the database (`init_db()`) and starts and stops the
+scheduler.
 
-Both the MCP server and the API import that module. **So each process builds its
-own `ExecutionEngine` instance.** They stay consistent only because both read and
-write the same SQLite file at `~/.orion/orion.db`.
-
-The practical consequence: a task created by the **voice** path (in the MCP
-server process) is approved by the **API** process, and therefore the approved
-step actually *executes inside the API process*. Both hold identical tool
-registries, so this works — but it is coincidence-by-construction, not design.
-See §12.
+So a task created by voice and approved from the dashboard is created,
+paused and resumed by the **same** `ExecutionEngine`, and a test asserts there
+is exactly one per app. The dev text agent (`make dev`) and tests build their
+own runtime with the same function.
 
 ---
 
@@ -142,13 +144,14 @@ See §12.
 ```
 Orion/
 ├── agent.py               Voice agent — LiveKit worker (Brain A)
-├── server.py              FastMCP server — exposes 24 tools over SSE
 │
 ├── bridge/                → OpenClaw
 │   ├── openclaw_client.py Async HTTP client, retries, error→speech
 │   └── response_parser.py Strips markdown/JSON so output is TTS-safe
 │
 ├── orion/
+│   ├── app.py             The one ASGI app: /api, /mcp, dashboard, lifespan
+│   ├── cli.py             `orion up` — runs the app, supervises voice
 │   ├── config.py          All env vars, typed; validate() on startup
 │   ├── persona.py         Loads system prompt + injects memories
 │   ├── prompts/           Orion's character prompt
@@ -159,7 +162,7 @@ Orion/
 │   │   ├── approvals.py   ApprovalGate + ApprovalStore protocol
 │   │   ├── registry.py    ToolDefinition[T] + ToolRegistry
 │   │   ├── planner.py     LLMPlanner (Brain B)
-│   │   ├── runtime.py     Wires singletons; registers gated tools
+│   │   ├── runtime.py     build_runtime(); declares gated tools
 │   │   ├── store.py       InMemoryTaskStore (reference impl)
 │   │   └── events.py      EventRecorder (in-memory)
 │   │
@@ -179,7 +182,7 @@ Orion/
 │
 ├── dashboard/             Vite + React + TS operator UI
 ├── dev/                   Mock OpenClaw · text agent · DB seeder
-└── tests/                 43 tests
+└── tests/                 51 tests
 ```
 
 ---
@@ -245,7 +248,7 @@ sequenceDiagram
     participant E as ExecutionEngine
     participant G as ApprovalGate
     participant DB as SQLite
-    participant API as Runtime API
+    participant API as Dashboard
     participant OC as OpenClaw
 
     U->>LK: "email Priya…"
@@ -260,7 +263,7 @@ sequenceDiagram
     T-->>LK: "The email is waiting for your approval…"
     LK-->>U: spoken notice
     Note over U,API: — human switches to dashboard —
-    API->>E: POST /tasks/{id}/approve
+    API->>E: POST /api/tasks/{id}/approve
     E->>G: grant_latest_for_task()
     E->>E: replay steps, skip SUCCEEDED
     E->>OC: send the email
@@ -270,7 +273,7 @@ sequenceDiagram
 
 The key difference from 5.1: the MCP tool calls `run_gated(...)` in
 `orion/tools/_gated.py` instead of hitting OpenClaw directly. That calls
-`run_gated_tool()` in `orion/core/runtime.py`, which builds a **one-step plan**
+`Runtime.run_tool()` in `orion/core/runtime.py`, which builds a **one-step plan**
 and hands it to `engine.create_task_with_steps()` — which means **Brain B (the
 planner) is skipped** on this path. The voice LLM already decided; the engine
 just executes under the gate. `describe_outcome()` then turns the task into one
@@ -280,9 +283,9 @@ spoken sentence, so a failure can never be reported as success.
 `send_slack`, `create_event`, `reschedule_event`, `write_file`, `run_command`,
 `run_code`.
 
-> ⚠️ The voice agent's turn **ends** at "waiting for your approval". It never
-> learns the outcome — the approval happens in a different process and nothing
-> notifies the voice session. See §12.
+> ⚠️ The voice agent's turn **ends** at "waiting for your approval". The same
+> engine later executes the approved step, but nothing notifies the voice
+> session of the outcome. See §12.
 
 ---
 
@@ -535,7 +538,9 @@ Sarvam's streaming STT up to 0.3s for batch Whisper).
 
 ## 10. The dashboard
 
-Vite + React + TypeScript on port 5173, talking to the API on 8010.
+Vite + React + TypeScript. `orion up` serves the built dashboard at `/` and
+the API at `/api` on the same origin. `make dashboard` runs the Vite dev server
+on 5173 with hot reload and proxies `/api` to the app.
 
 | Component | Shows |
 |---|---|
@@ -551,7 +556,7 @@ scheduler every 5s, conversations every 3s. An SSE helper (`streamEvents`)
 exists in `api/orion.ts` but the components currently poll.
 
 **The dashboard is the approval UI.** Without it (or a raw `POST
-/tasks/{id}/approve`), gated tasks sit in `AWAITING_APPROVAL` forever.
+/api/tasks/{id}/approve`), gated tasks sit in `AWAITING_APPROVAL` forever.
 
 ---
 
@@ -574,7 +579,7 @@ make dev      # text agent against mock OpenClaw
 demands credentials.
 
 ```bash
-make test     # 43 tests
+make test     # 51 tests
 make lint     # ruff + mypy, both clean
 ```
 
@@ -595,7 +600,7 @@ you broke them.
    planning; having both is the worst option.
 
 2. **One capability is still defined twice.** Gated tools are declared once in
-   `runtime.py` (`_register_openclaw_tool`), but the MCP signature in
+   `runtime.py` (`OPENCLAW_TOOLS`), but the MCP signature in
    `orion/tools/` repeats the argument list. Generating the MCP surface from the
    registry (item 3) would remove the second copy.
 
@@ -605,35 +610,36 @@ you broke them.
    MCP surface from the registry would make the gate structural.
 
 4. **Voice never learns the approval outcome.** The turn ends at "waiting for
-   your approval"; approval happens in another process with no callback.
+   your approval"; the approved step runs later with no callback to the voice
+   session.
    Do **not** fix this with a voice "approve" tool: the same LLM that proposed
    the action (possibly steered by an email it just read) could then approve it,
    which defeats the gate. Approval must come from a channel the LLM can't drive.
 
-5. **`GET /scheduler/jobs` fabricates its answer.** The live `OrionScheduler`
-   runs inside the MCP server process, but the endpoint is served by the API
-   process. So `routes.py` spins up a *throwaway* `AsyncIOScheduler` purely to
-   compute next-run times. `OrionScheduler.list_jobs()` exists but is
-   unreachable. Merging the processes fixes this for free.
+5. ✅ **Resolved (#15).** `GET /api/scheduler/jobs` used to spin up a throwaway
+   scheduler because the real one lived in another process. It now reads the
+   live `OrionScheduler` running in the app's lifespan.
 
-6. **Four processes, one SQLite file.** You pay distributed-system costs on
-   localhost with none of the benefits. Each process constructs its own engine
-   at import time.
+6. ✅ **Resolved (#15).** Orion used to be four processes sharing one SQLite
+   file, each with its own engine. It is now one app with one engine; only the
+   voice agent is a separate (supervised) process, and it holds no engine.
 
 7. **Two model layers with hand-written converters.** ~150 lines of
    serialization glue in `task_store.py`, in a library (SQLModel) whose whole
    premise is being both Pydantic and SQL at once.
 
-8. **Import-time side effects.** Importing `orion.core.runtime` creates the DB,
-   builds singletons and registers nine tools. Combined with circular-import
-   dodges, this is why you see function-local imports scattered around.
+8. ✅ **Resolved (#15).** Importing `orion.core.runtime` used to create the DB
+   and build singletons. Nothing runs at import time now (a test checks this);
+   `build_runtime()` and the app lifespan do the work.
 
-9. **No CI.** `phase/7-tests-ci` was never done — there's no `.github/`, so
-   nothing runs `make test` or `make lint` on push.
+9. ✅ **Resolved (#14).** GitHub Actions runs ruff, mypy, pytest and the
+   dashboard build on every PR; `main` requires both checks.
 
 10. **Coverage is uneven.** The planner, LLM registry, runtime adapters,
     scheduler, rejection/failure paths, gate coverage and timestamp handling are
-    tested (`tests/test_engine.py`). The API routes and SSE stream are not.
+    tested (`tests/test_engine.py`), as are the single-process app and a real
+    MCP-over-SSE round trip (`tests/test_app.py`). Most API routes and the task
+    SSE stream are not.
 
 11. **The gate only governs what Orion *asks* for.** Every tool, including
     "read-only" ones like `search_web`, sends a natural-language instruction to
@@ -654,7 +660,7 @@ you broke them.
 ```python
 from bridge import get_openclaw_client
 
-def register(mcp):
+def register(mcp, runtime):
     @mcp.tool()
     async def play_music(song: str, artist: str = "") -> str:
         """Play a song."""
@@ -665,16 +671,17 @@ def register(mcp):
 
 2. Register it in `orion/tools/__init__.py`.
 3. Add a mock response in `dev/mock_openclaw.py`.
-4. Restart `make server`.
+4. Restart Orion (`make up`).
 
 ### Add a side-effectful tool — must be gated
 
 1. In `orion/core/runtime.py`, add a Pydantic input model and one
-   `_register_openclaw_tool(name, description, InputModel, safety_level, render)`
-   call, where `render` turns the payload into the OpenClaw instruction.
-2. In the MCP module, have the tool `return await run_gated(name, intent,
-   action, **args)` from `orion/tools/_gated.py`. It handles approval and the
-   spoken outcome.
+   `_OpenClawTool(name, description, InputModel, safety_level, render)` entry
+   to `OPENCLAW_TOOLS`, where `render` turns the payload into the OpenClaw
+   instruction.
+2. In the MCP module, have the tool `return await run_gated(runtime, name,
+   intent, action, **args)` from `orion/tools/_gated.py`. It handles approval
+   and the spoken outcome.
 3. Add the tool name to `GateCoverageTests` in `tests/test_engine.py`.
 
 ### Add an LLM provider

@@ -42,17 +42,14 @@ For voice interaction, you'll need API keys:
 4. **TTS** — ElevenLabs API key (free tier) or OpenAI
 5. **OpenClaw** — Install with `npm install -g openclaw@latest`
 
-Fill in your `.env` file and start all 3 processes:
+Fill in your `.env` file, then start OpenClaw and Orion:
 
 ```bash
 # Terminal 1: OpenClaw (or use mock: make mock-openclaw)
 openclaw gateway --port 18789
 
-# Terminal 2: MCP Tool Server
-make server
-
-# Terminal 3: Voice Agent
-make voice
+# Terminal 2: Orion — API, tools, scheduler, dashboard and voice on :8000
+make up
 ```
 
 ---
@@ -109,32 +106,35 @@ ci(github): add GitHub Actions workflow for pytest and ruff
 1. **Create a tool module** in `orion/tools/` (e.g., `music.py`):
 
 ```python
-from bridge import openclaw_client
+from bridge import get_openclaw_client
 
-def register(mcp):
+def register(mcp, runtime):
     @mcp.tool()
     async def play_music(song: str, artist: str = "") -> str:
         """Play a song."""
         task = f"Play '{song}'"
         if artist:
             task += f" by {artist}"
-        result = await openclaw_client.send_task(task)
+        result = await get_openclaw_client().send_task(task)
         return result["result"]
 ```
+
+`runtime` is the app's shared `Runtime`. A tool with side effects must call
+`run_gated(runtime, ...)` from `orion/tools/_gated.py` instead of OpenClaw directly.
 
 2. **Register it** in `orion/tools/__init__.py`:
 
 ```python
 from orion.tools import music  # add import
 
-def register_all_tools(mcp):
-    # ... existing registrations ...
-    music.register(mcp)  # add this line
+def register_all_tools(mcp, runtime):
+    for module in (email, messaging, ..., music):  # add your module here
+        module.register(mcp, runtime)
 ```
 
 3. **Add mock responses** in `dev/mock_openclaw.py` for your new tool.
 
-4. **Restart** the MCP server (`make server`). Done.
+4. **Restart** Orion (`make up`). Done.
 
 ---
 
@@ -165,9 +165,9 @@ make lint-fix      # Auto-fix linting issues
 make help          # List all available targets
 make dev           # Text mode with mock (no API keys)
 make mock-openclaw # Start mock server standalone
-make server        # Start MCP server (production)
-make voice         # Start voice agent (production)
-make api           # Start REST API (production)
+make up           # Run Orion: API, tools, scheduler, dashboard, voice (:8000)
+make voice         # Run only the voice agent against a running `make up`
+make dashboard     # Dashboard dev server with hot reload (proxies /api)
 make clean         # Remove __pycache__ and .pyc files
 ```
 
