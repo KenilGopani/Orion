@@ -1,18 +1,24 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
+import json
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from orion.api.security import require_token
-from orion.core.models import TaskStatus
+from orion.core.models import RuntimeEvent, TaskStatus
+from orion.services.outcomes import outcome_for
 from orion.services.scheduler import describe_jobs
 
 if TYPE_CHECKING:
     from orion.core.runtime import Runtime
+
+
+#: Seconds between SSE keep-alive comments on idle streams.
+OUTCOME_KEEPALIVE = 15
 
 
 class CreateTaskRequest(BaseModel):
@@ -91,6 +97,41 @@ def build_routes(runtime: Runtime, api_token: str) -> APIRouter:
         if not task:
             raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
         return events.list_events(task_id)
+
+    @router.get("/events/outcomes")
+    async def stream_outcomes():
+        """SSE stream of approval outcomes, each with a sentence to speak.
+
+        The voice agent subscribes so it can say "The WhatsApp message you
+        approved went through." Only outcomes that happen after connecting are
+        sent; earlier ones are in the dashboard.
+        """
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+
+        def on_event(event: RuntimeEvent) -> None:
+            outcome = outcome_for(event, runtime)
+            if outcome:
+                # Events may be recorded off the event loop (e.g. a sync route
+                # in the threadpool); hand the outcome over thread-safely.
+                loop.call_soon_threadsafe(queue.put_nowait, outcome)
+
+        unsubscribe = events.subscribe(on_event)
+
+        async def outcome_stream():
+            try:
+                yield ": connected\n\n"
+                while True:
+                    try:
+                        outcome = await asyncio.wait_for(queue.get(), timeout=OUTCOME_KEEPALIVE)
+                    except asyncio.TimeoutError:
+                        yield ": keep-alive\n\n"
+                        continue
+                    yield f"data: {json.dumps(outcome)}\n\n"
+            finally:
+                unsubscribe()
+
+        return StreamingResponse(outcome_stream(), media_type="text/event-stream")
 
     @router.get("/tasks/{task_id}/stream")
     async def stream_task_events(task_id: str):

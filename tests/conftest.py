@@ -57,3 +57,40 @@ def local_client(app):
     from fastapi.testclient import TestClient
 
     return TestClient(app, base_url="http://127.0.0.1:8000")
+
+
+class live_server:  # noqa: N801 — used like a function: ``with live_server(app) as base_url``
+    """Run ``app`` on a real uvicorn server in a background thread.
+
+    Needed for streaming endpoints (SSE never ends, so in-process clients
+    can't read them) and for real MCP clients.
+    """
+
+    def __init__(self, app) -> None:
+        import socket
+        import threading
+
+        import uvicorn
+
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            self.port = sock.getsockname()[1]
+        self.server = uvicorn.Server(
+            uvicorn.Config(app, host="127.0.0.1", port=self.port, log_level="warning", ws="none")
+        )
+        self.thread = threading.Thread(target=self.server.run, daemon=True)
+
+    def __enter__(self) -> str:
+        import time
+
+        self.thread.start()
+        deadline = time.monotonic() + 10
+        while not self.server.started:
+            if time.monotonic() > deadline:
+                raise RuntimeError("test server did not start")
+            time.sleep(0.05)
+        return f"http://127.0.0.1:{self.port}"
+
+    def __exit__(self, *exc: object) -> None:
+        self.server.should_exit = True
+        self.thread.join(timeout=10)

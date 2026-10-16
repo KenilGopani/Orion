@@ -8,6 +8,8 @@ used as a drop-in replacement.
 from __future__ import annotations
 
 import json
+import logging
+from collections.abc import Callable
 from typing import Any
 
 from sqlmodel import col, select
@@ -16,9 +18,25 @@ from orion.core.models import RuntimeEvent
 from orion.db.models import EventRecord
 from orion.db.session import get_session
 
+logger = logging.getLogger("orion.events")
+
+Subscriber = Callable[[RuntimeEvent], None]
+
 
 class PersistentEventStore:
-    """SQLite-backed event store with the same interface as EventRecorder."""
+    """SQLite-backed event store with the same interface as EventRecorder.
+
+    In-process subscribers are notified after each event is committed, so the
+    app can push updates (e.g. approval outcomes) without polling the database.
+    """
+
+    def __init__(self) -> None:
+        self._subscribers: list[Subscriber] = []
+
+    def subscribe(self, callback: Subscriber) -> Callable[[], None]:
+        """Call ``callback`` for every new event; returns an unsubscribe function."""
+        self._subscribers.append(callback)
+        return lambda: self._subscribers.remove(callback)
 
     def record(
         self,
@@ -41,6 +59,11 @@ class PersistentEventStore:
         with get_session() as session:
             session.add(rec)
             session.commit()
+        for callback in list(self._subscribers):
+            try:
+                callback(event)
+            except Exception:  # a broken listener must never break the engine
+                logger.exception("Event subscriber failed for %s", event.event_type)
         return event
 
     def list_events(self, task_id: str) -> list[RuntimeEvent]:

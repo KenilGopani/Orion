@@ -16,6 +16,7 @@ Run:
 
 from __future__ import annotations
 
+import asyncio
 import sys
 import logging
 
@@ -36,6 +37,7 @@ from livekit.plugins import (
 from orion.persona import get_system_prompt
 from orion.config import config
 from orion.llm import resolve
+from orion.voice_outcomes import OutcomeAnnouncer
 
 # ---------------------------------------------------------------------------
 # CONFIG
@@ -317,6 +319,22 @@ async def entrypoint(ctx: JobContext) -> None:
         agent=OrionAgent(stt=stt, llm=llm, tts=tts),
         room=ctx.room,
     )
+
+    # ── Approval outcomes ─────────────────────────────────────────
+    # A turn ends at "waiting for your approval"; when the user later approves
+    # or rejects in the dashboard, say what happened at the next pause.
+    announcer = OutcomeAnnouncer(
+        url=f"http://127.0.0.1:{ORION_PORT}/api/events/outcomes",
+        speak=lambda text: session.say(text),
+        is_busy=lambda: session.user_state == "speaking"
+        or session.agent_state in ("speaking", "thinking"),
+    )
+    outcomes = asyncio.create_task(announcer.run())
+
+    async def _stop_outcomes() -> None:
+        outcomes.cancel()
+
+    ctx.add_shutdown_callback(_stop_outcomes)
 
 
 # ---------------------------------------------------------------------------

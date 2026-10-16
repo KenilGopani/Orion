@@ -7,23 +7,19 @@ from __future__ import annotations
 
 import asyncio
 import os
-import socket
 import subprocess
 import sys
 import tempfile
-import threading
-import time
 import unittest
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
-import uvicorn
 from mcp import ClientSession
 from mcp.client.sse import sse_client
 from starlette.routing import Mount
 
-from tests.conftest import AUTH, local_client, make_app, reset_test_db
+from tests.conftest import AUTH, live_server, local_client, make_app, reset_test_db
 
 from orion.app import MCP_MOUNT_PATH, build_mcp
 from orion.config import config
@@ -79,28 +75,15 @@ class McpOverSseTests(unittest.IsolatedAsyncioTestCase):
 
     def setUp(self) -> None:
         reset_test_db()
-        with socket.socket() as sock:
-            sock.bind(("127.0.0.1", 0))
-            self.port = sock.getsockname()[1]
-        app = make_app(replace(config, enable_scheduler=False))
-        self.server = uvicorn.Server(
-            uvicorn.Config(app, host="127.0.0.1", port=self.port, log_level="warning", ws="none")
-        )
-        self.thread = threading.Thread(target=self.server.run, daemon=True)
-        self.thread.start()
-        deadline = time.monotonic() + 10
-        while not self.server.started:
-            if time.monotonic() > deadline:
-                self.fail("server did not start")
-            time.sleep(0.05)
+        self.server = live_server(make_app(replace(config, enable_scheduler=False)))
+        self.base_url = self.server.__enter__()
 
     def tearDown(self) -> None:
-        self.server.should_exit = True
-        self.thread.join(timeout=10)
+        self.server.__exit__(None, None, None)
 
     async def test_client_lists_and_calls_tools(self) -> None:
         async def session() -> tuple[int, str]:
-            async with sse_client(f"http://127.0.0.1:{self.port}{MCP_MOUNT_PATH}/sse") as (read, write):
+            async with sse_client(f"{self.base_url}{MCP_MOUNT_PATH}/sse") as (read, write):
                 async with ClientSession(read, write) as client:
                     await client.initialize()
                     tools = (await client.list_tools()).tools
