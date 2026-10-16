@@ -17,11 +17,11 @@ logger = logging.getLogger("orion.db")
 # ── Database path ─────────────────────────────────────────────────────────────
 
 DB_DIR = Path.home() / ".orion"
-DB_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DB_DIR / "orion.db"
 
 DATABASE_URL = f"sqlite:///{DB_PATH}"
 
+# Creating the engine opens no connection; the file appears on first use.
 engine = create_engine(DATABASE_URL, echo=False)
 
 
@@ -32,6 +32,7 @@ def init_db() -> None:
     # Import models so SQLModel discovers them before create_all
     import orion.db.models  # noqa: F401
 
+    DB_DIR.mkdir(parents=True, exist_ok=True)
     SQLModel.metadata.create_all(engine)
     logger.info("Database initialised at %s", DB_PATH)
 

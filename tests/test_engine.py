@@ -12,8 +12,12 @@ from tests.conftest import reset_test_db
 
 from orion.core.engine import PlannedStep
 from orion.core.models import StepStatus, TaskStatus
-from orion.core.runtime import engine, events, registry, run_gated_tool, store
+from orion.core.runtime import build_runtime
 from orion.tools._gated import describe_outcome
+
+runtime = build_runtime()
+engine, events, registry, store = runtime.engine, runtime.events, runtime.registry, runtime.store
+run_tool = runtime.run_tool
 
 
 def _mock_openclaw(status: str = "success", result: str = "done") -> AsyncMock:
@@ -29,7 +33,7 @@ class RejectionTests(unittest.IsolatedAsyncioTestCase):
     async def test_reject_closes_approval_and_skips_step(self) -> None:
         client = _mock_openclaw()
         with patch("orion.core.runtime.get_openclaw_client", return_value=client):
-            task = await run_gated_tool("openclaw_send_email", "email", to="a@b.c", subject="s", body="b")
+            task = await run_tool("openclaw_send_email", "email", to="a@b.c", subject="s", body="b")
             rejected = engine.reject_task(task.id, rejected_by="tester")
 
         self.assertEqual(rejected.status, TaskStatus.FAILED)
@@ -43,7 +47,7 @@ class RejectionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_rejected_task_cannot_then_be_approved(self) -> None:
         with patch("orion.core.runtime.get_openclaw_client", return_value=_mock_openclaw()):
-            task = await run_gated_tool("openclaw_run_command", "rm", command="rm -rf /tmp/x")
+            task = await run_tool("openclaw_run_command", "rm", command="rm -rf /tmp/x")
             engine.reject_task(task.id, rejected_by="tester")
             with self.assertRaises(ValueError):
                 await engine.resume_task_after_approval(task.id, approved_by="tester")
@@ -70,7 +74,7 @@ class FailureTests(unittest.IsolatedAsyncioTestCase):
             "orion.core.runtime.get_openclaw_client",
             return_value=_mock_openclaw(status="error", result="Disk full."),
         ):
-            task = await run_gated_tool("openclaw_write_file", "write", path="/tmp/a", content="b")
+            task = await run_tool("openclaw_write_file", "write", path="/tmp/a", content="b")
             task = await engine.resume_task_after_approval(task.id, approved_by="tester")
 
         self.assertEqual(task.status, TaskStatus.FAILED)
@@ -80,7 +84,7 @@ class FailureTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_awaiting_approval_message_is_not_technical(self) -> None:
         with patch("orion.core.runtime.get_openclaw_client", return_value=_mock_openclaw()):
-            task = await run_gated_tool("openclaw_send_slack", "slack", channel="#x", message="hi")
+            task = await run_tool("openclaw_send_slack", "slack", channel="#x", message="hi")
         spoken = describe_outcome(task, "The Slack message")
         self.assertNotIn("POST", spoken)
         self.assertNotIn(task.id, spoken)

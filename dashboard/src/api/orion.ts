@@ -3,7 +3,8 @@
  * Typed HTTP client for all Orion Runtime API endpoints.
  */
 
-const API_BASE = "http://localhost:8010";
+// Same origin: served by `orion up`, or proxied by the Vite dev server.
+const API_BASE = "/api";
 
 // ── Types ────────────────────────────────────────────────────────
 

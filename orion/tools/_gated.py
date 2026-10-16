@@ -8,9 +8,12 @@ reported to the user as success.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from orion.core.models import Task, TaskStatus
+
+if TYPE_CHECKING:
+    from orion.core.runtime import Runtime
 
 
 def describe_outcome(task: Task, action: str) -> str:
@@ -27,9 +30,9 @@ def describe_outcome(task: Task, action: str) -> str:
     return f"{action} is {task.status.value.lower().replace('_', ' ')}."
 
 
-async def run_gated(tool_name: str, user_intent: str, action: str, **tool_args: Any) -> str:
+async def run_gated(
+    runtime: Runtime, tool_name: str, user_intent: str, action: str, **tool_args: Any
+) -> str:
     """Run a registered tool under the approval gate and describe the outcome."""
-    from orion.core.runtime import run_gated_tool
-
-    task = await run_gated_tool(tool_name, user_intent, **tool_args)
+    task = await runtime.run_tool(tool_name, user_intent, **tool_args)
     return describe_outcome(task, action)

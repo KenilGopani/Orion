@@ -3,11 +3,17 @@ Calendar tools — check events, create meetings, reschedule via OpenClaw.
 """
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from bridge import get_openclaw_client
 from orion.tools._gated import run_gated
 
+if TYPE_CHECKING:
+    from orion.core.runtime import Runtime
 
-def register(mcp):
+
+def register(mcp, runtime: Runtime) -> None:
 
     @mcp.tool()
     async def get_events(date: str = "today", count: int = 5) -> str:
@@ -42,6 +48,7 @@ def register(mcp):
             attendees: Comma-separated list of attendee names or emails (optional).
         """
         return await run_gated(
+            runtime,
             "openclaw_create_event",
             f"Create event: {title} on {date} at {time}",
             f"The '{title}' event",
@@ -68,6 +75,7 @@ def register(mcp):
             new_time: New time for the event (optional if only changing date).
         """
         return await run_gated(
+            runtime,
             "openclaw_reschedule_event",
             f"Reschedule event: {event_name}",
             f"Rescheduling '{event_name}'",

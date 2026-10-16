@@ -5,12 +5,13 @@ LiveKit Agents-powered voice assistant with MCP tool integration.
 
 Connects: Microphone → VAD → STT → LLM (+ MCP Tools) → TTS → Speaker
 
-The agent uses the Orion persona and connects to the FastMCP
-server (server.py) for tool execution. All tools delegate to the
+The agent uses the Orion persona and connects to the Orion app's MCP
+endpoint (/mcp/sse) for tool execution. All tools delegate to the
 OpenClaw daemon for real-world actions.
 
 Run:
-    uv run orion_voice
+    uv run orion up          # started automatically alongside the app
+    uv run orion_voice       # or on its own, against a running app
 """
 
 from __future__ import annotations
@@ -53,7 +54,7 @@ TTS_SPEED = 1.10
 SARVAM_TTS_LANGUAGE = "en-IN"
 SARVAM_TTS_SPEAKER = "rahul"
 
-MCP_SERVER_PORT = config.mcp_server_port
+ORION_PORT = config.port
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -71,7 +72,7 @@ logger = logging.getLogger("orion.agent")
 # ---------------------------------------------------------------------------
 
 def _mcp_server_url() -> str:
-    url = f"http://127.0.0.1:{MCP_SERVER_PORT}/sse"
+    url = f"http://127.0.0.1:{ORION_PORT}/mcp/sse"
     logger.info("MCP Server URL: %s", url)
     return url
 

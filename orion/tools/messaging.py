@@ -7,10 +7,15 @@ task string for OpenClaw, which has skills installed for each platform.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from orion.tools._gated import run_gated
 
+if TYPE_CHECKING:
+    from orion.core.runtime import Runtime
 
-def register(mcp):
+
+def register(mcp, runtime: Runtime) -> None:
 
     @mcp.tool()
     async def send_whatsapp(recipient: str, message: str) -> str:
@@ -22,6 +27,7 @@ def register(mcp):
             message: The message to send.
         """
         return await run_gated(
+            runtime,
             "openclaw_send_whatsapp",
             f"WhatsApp {recipient}: {message[:80]}",
             "The WhatsApp message",
@@ -40,6 +46,7 @@ def register(mcp):
             message: The message to send.
         """
         return await run_gated(
+            runtime,
             "openclaw_send_telegram",
             f"Telegram {recipient}: {message[:80]}",
             "The Telegram message",
@@ -58,6 +65,7 @@ def register(mcp):
             message: The message to send.
         """
         return await run_gated(
+            runtime,
             "openclaw_send_slack",
             f"Slack {channel}: {message[:80]}",
             "The Slack message",

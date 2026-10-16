@@ -3,9 +3,13 @@ Tool registry — imports and registers all tool modules with the MCP server.
 
 To add a new capability:
 1. Create a new file in this directory (e.g. ``music.py``)
-2. Define a ``register(mcp)`` function inside it
+2. Define a ``register(mcp, runtime)`` function inside it
 3. Import and call it here
 """
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from orion.tools import (
     email,
@@ -18,14 +22,11 @@ from orion.tools import (
     memory,
 )
 
+if TYPE_CHECKING:
+    from orion.core.runtime import Runtime
 
-def register_all_tools(mcp):
+
+def register_all_tools(mcp, runtime: Runtime) -> None:
     """Register every tool group onto the given MCP server instance."""
-    email.register(mcp)
-    messaging.register(mcp)
-    calendar.register(mcp)
-    code.register(mcp)
-    files.register(mcp)
-    browser.register(mcp)
-    system.register(mcp)
-    memory.register(mcp)
+    for module in (email, messaging, calendar, code, files, browser, system, memory):
+        module.register(mcp, runtime)

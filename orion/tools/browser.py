@@ -3,10 +3,16 @@ Browser tools — open URLs, search the web, take screenshots via OpenClaw.
 """
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from bridge import get_openclaw_client
 
+if TYPE_CHECKING:
+    from orion.core.runtime import Runtime
 
-def register(mcp):
+
+def register(mcp, runtime: Runtime) -> None:
 
     @mcp.tool()
     async def open_url(url: str) -> str:

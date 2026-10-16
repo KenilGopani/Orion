@@ -8,11 +8,16 @@ via its installed email skills (Gmail, Outlook, etc.).
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from bridge import get_openclaw_client
 from orion.tools._gated import run_gated
 
+if TYPE_CHECKING:
+    from orion.core.runtime import Runtime
 
-def register(mcp):
+
+def register(mcp, runtime: Runtime) -> None:
 
     @mcp.tool()
     async def check_email(
@@ -47,6 +52,7 @@ def register(mcp):
             body: Email body content.
         """
         return await run_gated(
+            runtime,
             "openclaw_send_email",
             f"Send email to {to} with subject {subject}",
             "The email",
