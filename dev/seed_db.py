@@ -54,7 +54,7 @@ def seed() -> None:
         name="check_email",
         description="Check email inbox via OpenClaw",
         status="SUCCEEDED",
-        planned_tool_name="openclaw_send_email",
+        planned_tool_name="send_email",
         planned_tool_args=json.dumps({"to": "inbox", "subject": "check", "body": "summary"}),
         tool_result_output=json.dumps({
             "message": "You have 3 unread emails. One from Priya about the deadline, "
@@ -94,7 +94,7 @@ def seed() -> None:
         name="send_whatsapp",
         description="Send WhatsApp message through OpenClaw backend",
         status="AWAITING_APPROVAL",
-        planned_tool_name="openclaw_send_whatsapp",
+        planned_tool_name="send_whatsapp",
         planned_tool_args=json.dumps({
             "recipient": "Priya",
             "message": "I'll be 10 minutes late",
@@ -106,7 +106,7 @@ def seed() -> None:
         id=a2_id,
         task_id=t2_id,
         step_id=s2_id,
-        tool_name="openclaw_send_whatsapp",
+        tool_name="send_whatsapp",
         reason="Tool safety level: EXTERNAL_SIDE_EFFECT — sends messages externally",
         created_at=t2_created + timedelta(seconds=1),
     )
@@ -117,7 +117,7 @@ def seed() -> None:
     )
     event2b = EventRecord(
         id=_id(), task_id=t2_id, event_type="approval_required",
-        payload=json.dumps({"tool": "openclaw_send_whatsapp", "approval_id": a2_id}),
+        payload=json.dumps({"tool": "send_whatsapp", "approval_id": a2_id}),
         created_at=t2_created + timedelta(seconds=1),
     )
 
@@ -139,7 +139,7 @@ def seed() -> None:
         name="write_file",
         description="Write file through OpenClaw backend",
         status="RUNNING",
-        planned_tool_name="openclaw_write_file",
+        planned_tool_name="write_file",
         planned_tool_args=json.dumps({
             "path": "README.md",
             "content": "# My Project\n\nAwesome project description here.",

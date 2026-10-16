@@ -1,6 +1,7 @@
 """
 Engine and approval-gate behaviour that the adapter tests don't cover:
-rejection, failure reporting, gate coverage and timestamp round-tripping.
+rejection, failure reporting and timestamp round-tripping. (Gate coverage for
+every tool lives in test_tool_surface.py.)
 """
 
 from __future__ import annotations
@@ -13,10 +14,10 @@ from tests.conftest import reset_test_db
 from orion.core.engine import PlannedStep
 from orion.core.models import StepStatus, TaskStatus
 from orion.core.runtime import build_runtime
-from orion.tools._gated import describe_outcome
+from orion.tools._mcp import describe_outcome
 
 runtime = build_runtime()
-engine, events, registry, store = runtime.engine, runtime.events, runtime.registry, runtime.store
+engine, events, store = runtime.engine, runtime.events, runtime.store
 run_tool = runtime.run_tool
 
 
@@ -32,8 +33,8 @@ class RejectionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_reject_closes_approval_and_skips_step(self) -> None:
         client = _mock_openclaw()
-        with patch("orion.core.runtime.get_openclaw_client", return_value=client):
-            task = await run_tool("openclaw_send_email", "email", to="a@b.c", subject="s", body="b")
+        with patch("orion.tools._openclaw.get_openclaw_client", return_value=client):
+            task = await run_tool("send_email", "email", to="a@b.c", subject="s", body="b")
             rejected = engine.reject_task(task.id, rejected_by="tester")
 
         self.assertEqual(rejected.status, TaskStatus.FAILED)
@@ -46,8 +47,8 @@ class RejectionTests(unittest.IsolatedAsyncioTestCase):
         client.send_task.assert_not_called()
 
     async def test_rejected_task_cannot_then_be_approved(self) -> None:
-        with patch("orion.core.runtime.get_openclaw_client", return_value=_mock_openclaw()):
-            task = await run_tool("openclaw_run_command", "rm", command="rm -rf /tmp/x")
+        with patch("orion.tools._openclaw.get_openclaw_client", return_value=_mock_openclaw()):
+            task = await run_tool("run_command", "rm", command="rm -rf /tmp/x")
             engine.reject_task(task.id, rejected_by="tester")
             with self.assertRaises(ValueError):
                 await engine.resume_task_after_approval(task.id, approved_by="tester")
@@ -71,10 +72,10 @@ class FailureTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_failed_tool_is_never_described_as_success(self) -> None:
         with patch(
-            "orion.core.runtime.get_openclaw_client",
+            "orion.tools._openclaw.get_openclaw_client",
             return_value=_mock_openclaw(status="error", result="Disk full."),
         ):
-            task = await run_tool("openclaw_write_file", "write", path="/tmp/a", content="b")
+            task = await run_tool("write_file", "write", path="/tmp/a", content="b")
             task = await engine.resume_task_after_approval(task.id, approved_by="tester")
 
         self.assertEqual(task.status, TaskStatus.FAILED)
@@ -83,28 +84,11 @@ class FailureTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Disk full.", spoken)
 
     async def test_awaiting_approval_message_is_not_technical(self) -> None:
-        with patch("orion.core.runtime.get_openclaw_client", return_value=_mock_openclaw()):
-            task = await run_tool("openclaw_send_slack", "slack", channel="#x", message="hi")
+        with patch("orion.tools._openclaw.get_openclaw_client", return_value=_mock_openclaw()):
+            task = await run_tool("send_slack", "slack", channel="#x", message="hi")
         spoken = describe_outcome(task, "The Slack message")
         self.assertNotIn("POST", spoken)
         self.assertNotIn(task.id, spoken)
-
-
-class GateCoverageTests(unittest.TestCase):
-    def test_tools_that_act_on_the_world_require_approval(self) -> None:
-        for name in (
-            "openclaw_send_email",
-            "openclaw_send_whatsapp",
-            "openclaw_send_telegram",
-            "openclaw_send_slack",
-            "openclaw_create_event",
-            "openclaw_reschedule_event",
-            "openclaw_write_file",
-            "openclaw_run_command",
-            "openclaw_run_code",
-        ):
-            with self.subTest(tool=name):
-                self.assertTrue(registry.get(name).requires_approval)
 
 
 class TimestampTests(unittest.TestCase):

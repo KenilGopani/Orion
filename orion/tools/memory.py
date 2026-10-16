@@ -11,7 +11,12 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import TYPE_CHECKING
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+from orion.core.models import ToolSafetyLevel
+from orion.core.registry import ToolDefinition
 
 logger = logging.getLogger("orion.tools.memory")
 
@@ -96,59 +101,72 @@ def _heuristic_extract(fact: str) -> tuple[str, str]:
     # Fallback: slugify whole fact
     return _slugify(fact), fact
 
-if TYPE_CHECKING:
-    from orion.core.runtime import Runtime
 
 
-def register(mcp, runtime: Runtime) -> None:
+class RememberInput(BaseModel):
+    fact: str = Field(description='The information to remember, e.g. "My standup is at 10am every weekday".')
 
-    @mcp.tool()
-    async def remember_this(fact: str) -> str:
-        """
-        Store a fact or piece of information for future recall.
 
-        Args:
-            fact: The information to remember (e.g. "My standup is at 10am every weekday").
-        """
-        from orion.services.memory import memory_service
+class RecallInput(BaseModel):
+    topic: str = Field(description='The topic to search memory for, e.g. "standup time".')
 
-        key, value = await _extract_key_value(fact)
-        memory_service.remember(key=key, value=value, source="voice")
-        return f"Noted, sir. I'll remember that {key} is {value}."
 
-    @mcp.tool()
-    async def what_do_i_know_about(topic: str) -> str:
-        """
-        Recall stored information about a topic.
+class ForgetInput(BaseModel):
+    topic: str = Field(description="The topic to forget.")
 
-        Args:
-            topic: The topic to search memory for (e.g. "standup time", "Priya's email").
-        """
-        from orion.services.memory import memory_service
 
-        results = memory_service.recall(topic)
-        if not results:
-            return f"I don't have anything stored about '{topic}', sir."
+async def _remember(payload: RememberInput) -> dict[str, str]:
+    from orion.services.memory import memory_service
 
-        if len(results) == 1:
-            return f"{results[0].key}: {results[0].value}"
+    key, value = await _extract_key_value(payload.fact)
+    memory_service.remember(key=key, value=value, source="voice")
+    return {"message": f"Noted, sir. I'll remember that {key} is {value}."}
 
-        lines = [f"Here's what I know about '{topic}':"]
-        for mem in results:
-            lines.append(f"  • {mem.key}: {mem.value}")
-        return "\n".join(lines)
 
-    @mcp.tool()
-    async def forget(topic: str) -> str:
-        """
-        Remove stored information about a topic from memory.
+def _recall(payload: RecallInput) -> dict[str, str]:
+    from orion.services.memory import memory_service
 
-        Args:
-            topic: The topic to forget.
-        """
-        from orion.services.memory import memory_service
+    results = memory_service.recall(payload.topic)
+    if not results:
+        return {"message": f"I don't have anything stored about '{payload.topic}', sir."}
+    if len(results) == 1:
+        return {"message": f"{results[0].key}: {results[0].value}"}
+    lines = [f"Here's what I know about '{payload.topic}':"]
+    lines += [f"  • {mem.key}: {mem.value}" for mem in results]
+    return {"message": "\n".join(lines)}
 
-        found = memory_service.forget(topic)
-        if found:
-            return f"Done, sir. I've forgotten about '{topic}'."
-        return f"I didn't have anything stored about '{topic}', sir."
+
+def _forget(payload: ForgetInput) -> dict[str, str]:
+    from orion.services.memory import memory_service
+
+    if memory_service.forget(payload.topic):
+        return {"message": f"Done, sir. I've forgotten about '{payload.topic}'."}
+    return {"message": f"I didn't have anything stored about '{payload.topic}', sir."}
+
+
+TOOLS: list[ToolDefinition[Any]] = [
+    ToolDefinition(
+        name="remember_this",
+        description="Store a fact or piece of information for future recall.",
+        input_model=RememberInput,
+        handler=_remember,
+        safety_level=ToolSafetyLevel.LOW_RISK,
+        action="Saving that memory",
+    ),
+    ToolDefinition(
+        name="what_do_i_know_about",
+        description="Recall stored information about a topic.",
+        input_model=RecallInput,
+        handler=_recall,
+        safety_level=ToolSafetyLevel.READ_ONLY,
+        action="The memory lookup",
+    ),
+    ToolDefinition(
+        name="forget",
+        description="Remove stored information about a topic from memory.",
+        input_model=ForgetInput,
+        handler=_forget,
+        safety_level=ToolSafetyLevel.LOW_RISK,
+        action="Forgetting that",
+    ),
+]
