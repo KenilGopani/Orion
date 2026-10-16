@@ -52,8 +52,8 @@ operable.
   is actions taken and recorded.
 - **Not an executor itself.** Orion never sends an email directly. It delegates
   all real-world work to **OpenClaw**, a separate local daemon.
-- **Not fully offline.** STT, TTS and the LLM can all run locally and free, but
-  LiveKit Cloud is still required for voice transport.
+- **Not cloud-dependent.** STT, TTS, the LLM and (with `orion up --offline`)
+  the LiveKit transport can all run locally and free.
 
 ---
 
@@ -108,6 +108,7 @@ optional local model servers.
 | OpenClaw gateway | `openclaw gateway --port 18789` | 18789 | All real-world execution |
 | **Orion app** | `make up` / `orion up` | 8000 | Engine, API (`/api`), MCP tools (`/mcp/sse`), scheduler, dashboard (`/`) |
 | ↳ Voice agent | child of `orion up` | — | Mic/speaker, voice LLM |
+| ↳ LiveKit server | child of `orion up --offline` (or already running) | 7880 | Local audio transport instead of LiveKit Cloud |
 
 The voice agent is still its own OS process, because LiveKit's worker model
 requires one, but `orion up` starts and stops it; `--no-voice` skips it. It
@@ -155,6 +156,7 @@ Orion/
 │   ├── app.py             The one ASGI app: /api, /mcp, dashboard, lifespan
 │   ├── cli.py             `orion up`, `orion openclaw-config`
 │   ├── openclaw_setup.py  Least-privilege OpenClaw agents + startup checks
+│   ├── offline.py         Offline profile check + local LiveKit server
 │   ├── config.py          All env vars, typed; validate() on startup
 │   ├── persona.py         Loads system prompt + injects memories
 │   ├── prompts/           Orion's character prompt
@@ -189,7 +191,7 @@ Orion/
 │
 ├── dashboard/             Vite + React + TS operator UI
 ├── dev/                   Mock OpenClaw · text agent · DB seeder
-└── tests/                 122 tests
+└── tests/                 132 tests
 ```
 
 ---
@@ -599,6 +601,7 @@ on 5173 with hot reload and proxies `/api` to the app.
 | `TaskDetail` | steps, tool args, results |
 | `ApprovalPanel` | pending approvals with Approve / Reject |
 | `ConversationLog` | recent voice exchanges |
+| `VoicePanel` | **Talk**: joins the voice room from the browser (token from `/api/voice/token`; `livekit-client` lazy-loaded) |
 | `SchedulerPanel` | jobs and next run times |
 
 `hooks/useOrion.ts` uses plain `setInterval` polling — tasks every 2s, health and
@@ -637,7 +640,7 @@ make dev      # text agent against mock OpenClaw
 demands credentials.
 
 ```bash
-make test     # 122 tests
+make test     # 132 tests
 make lint     # ruff + mypy, both clean
 ```
 
