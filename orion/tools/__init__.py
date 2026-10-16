@@ -1,32 +1,28 @@
 """
-Tool registry — imports and registers all tool modules with the MCP server.
+Orion's tools — one declaration per capability.
 
-To add a new capability:
-1. Create a new file in this directory (e.g. ``music.py``)
-2. Define a ``register(mcp, runtime)`` function inside it
-3. Import and call it here
+Each module here exports ``TOOLS``: a list of ``ToolDefinition``s giving the
+tool's name, typed input, safety level and handler. ``build_registry()`` puts
+them all in the engine's registry, and the voice LLM's MCP surface is
+generated from that registry (``orion.tools._mcp``), so every voice call runs
+through the engine and its approval gate.
+
+To add a capability, declare it in the right module (or a new one listed in
+``all_tools``). There is nothing else to wire up.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any
 
-from orion.tools import (
-    email,
-    messaging,
-    calendar,
-    code,
-    files,
-    browser,
-    system,
-    memory,
-)
-
-if TYPE_CHECKING:
-    from orion.core.runtime import Runtime
+from orion.core.registry import ToolDefinition
+from orion.tools import browser, calendar, code, email, files, memory, messaging, system
 
 
-def register_all_tools(mcp, runtime: Runtime) -> None:
-    """Register every tool group onto the given MCP server instance."""
-    for module in (email, messaging, calendar, code, files, browser, system, memory):
-        module.register(mcp, runtime)
+def all_tools() -> list[ToolDefinition[Any]]:
+    """Every declared tool, in a stable order."""
+    return [
+        tool
+        for module in (email, messaging, calendar, code, files, browser, system, memory)
+        for tool in module.TOOLS
+    ]

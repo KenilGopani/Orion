@@ -26,9 +26,9 @@ class RuntimeEmailAdapterTests(unittest.IsolatedAsyncioTestCase):
     async def test_send_email_requires_approval(self) -> None:
         mock_client = AsyncMock()
         mock_client.send_task.return_value = {"status": "success", "result": "sent"}
-        with patch("orion.core.runtime.get_openclaw_client", return_value=mock_client):
+        with patch("orion.tools._openclaw.get_openclaw_client", return_value=mock_client):
             task = await run_tool(
-                "openclaw_send_email",
+                "send_email",
                 "Send email",
                 to="demo@example.com",
                 subject="Hello",
@@ -39,9 +39,9 @@ class RuntimeEmailAdapterTests(unittest.IsolatedAsyncioTestCase):
     async def test_send_email_resumes_after_approval(self) -> None:
         mock_client = AsyncMock()
         mock_client.send_task.return_value = {"status": "success", "result": "sent"}
-        with patch("orion.core.runtime.get_openclaw_client", return_value=mock_client):
+        with patch("orion.tools._openclaw.get_openclaw_client", return_value=mock_client):
             task = await run_tool(
-                "openclaw_send_email",
+                "send_email",
                 "Send email",
                 to="demo@example.com",
                 subject="Hello",

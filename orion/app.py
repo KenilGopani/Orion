@@ -26,7 +26,7 @@ from orion.api.routes import build_routes
 from orion.config import Config, config as default_config
 from orion.core.runtime import Runtime, build_runtime
 from orion.db.session import init_db
-from orion.tools import register_all_tools
+from orion.tools._mcp import expose_tools
 
 logger = logging.getLogger("orion.app")
 
@@ -51,7 +51,7 @@ def build_mcp(runtime: Runtime) -> FastMCP:
             "for executing real-world tasks. Be concise and precise."
         ),
     )
-    register_all_tools(mcp, runtime)
+    expose_tools(mcp, runtime)
     return mcp
 
 

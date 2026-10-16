@@ -1,72 +1,72 @@
 """
-Code tools — create projects, run scripts, open editor via OpenClaw.
+Code tools — create projects, run snippets and open the editor via OpenClaw.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any
 
-from bridge import get_openclaw_client
-from orion.tools._gated import run_gated
+from pydantic import BaseModel, Field
 
-if TYPE_CHECKING:
-    from orion.core.runtime import Runtime
+from orion.core.models import ToolSafetyLevel
+from orion.core.registry import ToolDefinition
+from orion.tools._openclaw import openclaw_tool
 
 
-def register(mcp, runtime: Runtime) -> None:
+class CreateProjectInput(BaseModel):
+    name: str = Field(description="Project name.")
+    language: str = Field("python", description='Programming language, e.g. "python" or "typescript".')
+    framework: str = Field("", description='Framework, e.g. "fastapi" or "nextjs" (optional).')
+    path: str = Field("", description="Directory to create it in (optional; defaults to the dev folder).")
 
-    @mcp.tool()
-    async def create_project(
-        name: str,
-        language: str = "python",
-        framework: str = "",
-        path: str = "",
-    ) -> str:
-        """
-        Create a new code project.
 
-        Args:
-            name: Project name.
-            language: Programming language (e.g. "python", "javascript", "typescript").
-            framework: Framework to use (e.g. "fastapi", "nextjs", "express"). Optional.
-            path: Directory path to create the project in. Optional — defaults to user's dev folder.
-        """
-        task = f"Create a new {language} project called '{name}'"
-        if framework:
-            task += f" using the {framework} framework"
-        if path:
-            task += f" in the directory {path}"
-        task += ". Set up the standard project structure, dependencies, and a basic starter file."
-        result = await get_openclaw_client().send_task(task)
-        return result["result"]
+class RunCodeInput(BaseModel):
+    code: str = Field(description="The code to execute.")
+    language: str = Field("python", description="Programming language of the code.")
 
-    @mcp.tool()
-    async def run_code(code: str, language: str = "python") -> str:
-        """
-        Run a code snippet and return the output.
-        Requires approval before execution.
 
-        Args:
-            code: The code to execute.
-            language: Programming language of the code.
-        """
-        return await run_gated(
-            runtime,
-            "openclaw_run_code",
-            f"Run {language} code ({len(code.splitlines())} lines)",
-            "The code",
-            code=code,
-            language=language,
-        )
+class OpenEditorInput(BaseModel):
+    path: str = Field(description="File or directory path to open.")
 
-    @mcp.tool()
-    async def open_editor(path: str) -> str:
-        """
-        Open a file or project in the default code editor.
 
-        Args:
-            path: File or directory path to open.
-        """
-        task = f"Open '{path}' in the default code editor (VS Code or similar)."
-        result = await get_openclaw_client().send_task(task)
-        return result["result"]
+def _render_create_project(p: CreateProjectInput) -> str:
+    task = f"Create a new {p.language} project called '{p.name}'"
+    if p.framework:
+        task += f" using the {p.framework} framework"
+    if p.path:
+        task += f" in the directory {p.path}"
+    return task + ". Set up the standard project structure, dependencies, and a basic starter file."
+
+
+TOOLS: list[ToolDefinition[Any]] = [
+    openclaw_tool(
+        name="create_project",
+        description=(
+            "Create a new code project. Requires approval before execution, "
+            "since installing dependencies runs third-party code."
+        ),
+        input_model=CreateProjectInput,
+        # Dependency installation executes package install scripts.
+        safety_level=ToolSafetyLevel.DESTRUCTIVE,
+        render=_render_create_project,
+        action="Creating the project",
+        describe=lambda p: f"Create {p.language} project: {p.name}",
+    ),
+    openclaw_tool(
+        name="run_code",
+        description="Run a code snippet and return the output. Requires approval before execution.",
+        input_model=RunCodeInput,
+        safety_level=ToolSafetyLevel.DESTRUCTIVE,
+        render=lambda p: f"Run the following {p.language} code and tell me the output:\n{p.code}",
+        action="The code",
+        describe=lambda p: f"Run {p.language} code ({len(p.code.splitlines())} lines)",
+    ),
+    openclaw_tool(
+        name="open_editor",
+        description="Open a file or project in the default code editor.",
+        input_model=OpenEditorInput,
+        safety_level=ToolSafetyLevel.LOW_RISK,
+        render=lambda p: f"Open '{p.path}' in the default code editor (VS Code or similar).",
+        action="Opening the editor",
+    ),
+]

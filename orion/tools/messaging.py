@@ -1,74 +1,58 @@
 """
-Messaging tools — WhatsApp, Telegram, Slack via OpenClaw.
-
-Each function translates a structured tool call into a natural-language
-task string for OpenClaw, which has skills installed for each platform.
+Messaging tools — WhatsApp, Telegram and Slack via OpenClaw skills.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any
 
-from orion.tools._gated import run_gated
+from pydantic import BaseModel, Field
 
-if TYPE_CHECKING:
-    from orion.core.runtime import Runtime
+from orion.core.models import ToolSafetyLevel
+from orion.core.registry import ToolDefinition
+from orion.tools._openclaw import openclaw_tool
 
 
-def register(mcp, runtime: Runtime) -> None:
+class SendMessageInput(BaseModel):
+    recipient: str = Field(description="Contact name, username or phone number.")
+    message: str = Field(description="The message to send.")
 
-    @mcp.tool()
-    async def send_whatsapp(recipient: str, message: str) -> str:
-        """
-        Send a WhatsApp message to someone.
 
-        Args:
-            recipient: Contact name or phone number.
-            message: The message to send.
-        """
-        return await run_gated(
-            runtime,
-            "openclaw_send_whatsapp",
-            f"WhatsApp {recipient}: {message[:80]}",
-            "The WhatsApp message",
-            recipient=recipient,
-            message=message,
-        )
+class SendSlackInput(BaseModel):
+    channel: str = Field(description='Slack channel or user, e.g. "#general" or "@username".')
+    message: str = Field(description="The message to send.")
 
-    @mcp.tool()
-    async def send_telegram(recipient: str, message: str) -> str:
-        """
-        Send a Telegram message to someone.
-        Requires approval before execution.
 
-        Args:
-            recipient: Contact name or username.
-            message: The message to send.
-        """
-        return await run_gated(
-            runtime,
-            "openclaw_send_telegram",
-            f"Telegram {recipient}: {message[:80]}",
-            "The Telegram message",
-            recipient=recipient,
-            message=message,
-        )
+def _preview(text: str) -> str:
+    return text if len(text) <= 80 else text[:79] + "…"
 
-    @mcp.tool()
-    async def send_slack(channel: str, message: str) -> str:
-        """
-        Send a message to a Slack channel.
-        Requires approval before execution.
 
-        Args:
-            channel: Slack channel name (e.g. "#general" or "@username").
-            message: The message to send.
-        """
-        return await run_gated(
-            runtime,
-            "openclaw_send_slack",
-            f"Slack {channel}: {message[:80]}",
-            "The Slack message",
-            channel=channel,
-            message=message,
-        )
+TOOLS: list[ToolDefinition[Any]] = [
+    openclaw_tool(
+        name="send_whatsapp",
+        description="Send a WhatsApp message to someone. Requires approval before execution.",
+        input_model=SendMessageInput,
+        safety_level=ToolSafetyLevel.EXTERNAL_SIDE_EFFECT,
+        render=lambda p: f"Send a WhatsApp message to {p.recipient}: {p.message}",
+        action="The WhatsApp message",
+        describe=lambda p: f"WhatsApp {p.recipient}: {_preview(p.message)}",
+    ),
+    openclaw_tool(
+        name="send_telegram",
+        description="Send a Telegram message to someone. Requires approval before execution.",
+        input_model=SendMessageInput,
+        safety_level=ToolSafetyLevel.EXTERNAL_SIDE_EFFECT,
+        render=lambda p: f"Send a Telegram message to {p.recipient}: {p.message}",
+        action="The Telegram message",
+        describe=lambda p: f"Telegram {p.recipient}: {_preview(p.message)}",
+    ),
+    openclaw_tool(
+        name="send_slack",
+        description="Send a message to a Slack channel. Requires approval before execution.",
+        input_model=SendSlackInput,
+        safety_level=ToolSafetyLevel.EXTERNAL_SIDE_EFFECT,
+        render=lambda p: f"Send a Slack message to {p.channel}: {p.message}",
+        action="The Slack message",
+        describe=lambda p: f"Slack {p.channel}: {_preview(p.message)}",
+    ),
+]

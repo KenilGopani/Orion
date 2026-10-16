@@ -26,9 +26,9 @@ class RuntimeMessagingAdapterTests(unittest.IsolatedAsyncioTestCase):
     async def test_send_whatsapp_requires_approval(self) -> None:
         mock_client = AsyncMock()
         mock_client.send_task.return_value = {"status": "success", "result": "delivered"}
-        with patch("orion.core.runtime.get_openclaw_client", return_value=mock_client):
+        with patch("orion.tools._openclaw.get_openclaw_client", return_value=mock_client):
             task = await run_tool(
-                "openclaw_send_whatsapp",
+                "send_whatsapp",
                 "WhatsApp",
                 recipient="+15551234567",
                 message="This should pause until approved",
@@ -38,9 +38,9 @@ class RuntimeMessagingAdapterTests(unittest.IsolatedAsyncioTestCase):
     async def test_send_whatsapp_resumes_after_approval(self) -> None:
         mock_client = AsyncMock()
         mock_client.send_task.return_value = {"status": "success", "result": "delivered"}
-        with patch("orion.core.runtime.get_openclaw_client", return_value=mock_client):
+        with patch("orion.tools._openclaw.get_openclaw_client", return_value=mock_client):
             task = await run_tool(
-                "openclaw_send_whatsapp",
+                "send_whatsapp",
                 "WhatsApp",
                 recipient="+15551234567",
                 message="Approval flow",

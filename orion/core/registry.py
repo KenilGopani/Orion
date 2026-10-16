@@ -15,11 +15,24 @@ TInput = TypeVar("TInput", bound=BaseModel)
 
 
 class ToolDefinition(BaseModel, Generic[TInput]):
+    """The single declaration of a capability.
+
+    The engine executes it, the planner lists it, and — when ``voice`` is set —
+    the MCP surface the voice LLM sees is generated from it, so a tool's name,
+    arguments and safety level are written down exactly once.
+    """
+
     name: str
     description: str
     input_model: type[TInput]
     handler: Callable[[TInput], dict[str, Any] | Awaitable[dict[str, Any]]]
     safety_level: ToolSafetyLevel
+    #: Expose this tool to the voice LLM over MCP.
+    voice: bool = True
+    #: Subject of the spoken outcome, e.g. "The email" → "The email didn't go through."
+    action: str = ""
+    #: Builds the task's user intent (shown on approval cards) from the input.
+    describe: Callable[[TInput], str] | None = None
 
     @property
     def requires_approval(self) -> bool:
@@ -27,6 +40,14 @@ class ToolDefinition(BaseModel, Generic[TInput]):
             ToolSafetyLevel.EXTERNAL_SIDE_EFFECT,
             ToolSafetyLevel.DESTRUCTIVE,
         }
+
+    def intent_for(self, payload: TInput) -> str:
+        """A short human-readable summary of one call to this tool."""
+        if self.describe:
+            return self.describe(payload)
+        args = ", ".join(f"{k}={v!r}" for k, v in payload.model_dump().items())
+        summary = f"{self.name}({args})"
+        return summary if len(summary) <= 100 else summary[:99] + "…"
 
 
 class ToolRegistry:

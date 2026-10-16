@@ -1,54 +1,65 @@
 """
-System tools — time, system info, shell commands via OpenClaw.
+System tools — time, system info and shell commands.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import Any
 
-from bridge import get_openclaw_client
-from orion.tools._gated import run_gated
+from pydantic import BaseModel, Field
 
-if TYPE_CHECKING:
-    from orion.core.runtime import Runtime
+from orion.core.models import ToolSafetyLevel
+from orion.core.registry import ToolDefinition
+from orion.tools._openclaw import openclaw_tool
 
 
-def register(mcp, runtime: Runtime) -> None:
+class NoInput(BaseModel):
+    pass
 
-    @mcp.tool()
-    async def get_time() -> str:
-        """Get the current date and time."""
-        now = datetime.now()
-        utc_now = datetime.now(timezone.utc)
-        return (
+
+class RunCommandInput(BaseModel):
+    command: str = Field(description="The shell command to execute.")
+
+
+def _get_time(_: NoInput) -> dict[str, str]:
+    now = datetime.now()
+    utc_now = datetime.now(timezone.utc)
+    return {
+        "message": (
             f"The current local time is {now.strftime('%I:%M %p on %A, %B %d, %Y')}. "
             f"UTC time is {utc_now.strftime('%H:%M')}."
         )
+    }
 
-    @mcp.tool()
-    async def get_system_info() -> str:
-        """Get information about the user's system — OS, hardware, disk space, etc."""
-        task = (
+
+TOOLS: list[ToolDefinition[Any]] = [
+    ToolDefinition(
+        name="get_time",
+        description="Get the current date and time.",
+        input_model=NoInput,
+        handler=_get_time,
+        safety_level=ToolSafetyLevel.READ_ONLY,
+        action="Checking the time",
+    ),
+    openclaw_tool(
+        name="get_system_info",
+        description="Get information about the user's system — OS, hardware, disk space, etc.",
+        input_model=NoInput,
+        safety_level=ToolSafetyLevel.READ_ONLY,
+        render=lambda p: (
             "Get system information: operating system, CPU, memory usage, "
             "disk space, and uptime. Summarize it briefly."
-        )
-        result = await get_openclaw_client().send_task(task)
-        return result["result"]
-
-    @mcp.tool()
-    async def run_command(command: str) -> str:
-        """
-        Run a shell command on the user's system.
-        Requires approval before execution.
-
-        Args:
-            command: The shell command to execute.
-        """
-        return await run_gated(
-            runtime,
-            "openclaw_run_command",
-            f"Run command: {command[:80]}",
-            "The command",
-            command=command,
-        )
+        ),
+        action="The system check",
+    ),
+    openclaw_tool(
+        name="run_command",
+        description="Run a shell command on the user's system. Requires approval before execution.",
+        input_model=RunCommandInput,
+        safety_level=ToolSafetyLevel.DESTRUCTIVE,
+        render=lambda p: f"Run the following shell command and tell me the output: {p.command}",
+        action="The command",
+        describe=lambda p: f"Run command: {p.command[:80]}",
+    ),
+]

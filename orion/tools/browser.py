@@ -1,46 +1,53 @@
 """
-Browser tools — open URLs, search the web, take screenshots via OpenClaw.
+Browser tools — open URLs, search the web and take screenshots via OpenClaw.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any
 
-from bridge import get_openclaw_client
+from pydantic import BaseModel, Field
 
-if TYPE_CHECKING:
-    from orion.core.runtime import Runtime
+from orion.core.models import ToolSafetyLevel
+from orion.core.registry import ToolDefinition
+from orion.tools._openclaw import openclaw_tool
 
 
-def register(mcp, runtime: Runtime) -> None:
+class OpenUrlInput(BaseModel):
+    url: str = Field(description="The URL to open.")
 
-    @mcp.tool()
-    async def open_url(url: str) -> str:
-        """
-        Open a URL in the system's web browser.
 
-        Args:
-            url: The URL to open.
-        """
-        task = f"Open the following URL in the web browser: {url}"
-        result = await get_openclaw_client().send_task(task)
-        return result["result"]
+class SearchWebInput(BaseModel):
+    query: str = Field(description="The search query.")
 
-    @mcp.tool()
-    async def search_web(query: str) -> str:
-        """
-        Search the web for a query and return a summary of results.
 
-        Args:
-            query: The search query.
-        """
-        task = f"Search the web for: {query}. Summarize the top results briefly."
-        result = await get_openclaw_client().send_task(task)
-        return result["result"]
+class NoInput(BaseModel):
+    pass
 
-    @mcp.tool()
-    async def take_screenshot() -> str:
-        """Take a screenshot of the current screen."""
-        task = "Take a screenshot of the current screen and describe what's visible."
-        result = await get_openclaw_client().send_task(task)
-        return result["result"]
+
+TOOLS: list[ToolDefinition[Any]] = [
+    openclaw_tool(
+        name="open_url",
+        description="Open a URL in the system's web browser.",
+        input_model=OpenUrlInput,
+        safety_level=ToolSafetyLevel.LOW_RISK,
+        render=lambda p: f"Open the following URL in the web browser: {p.url}",
+        action="Opening the link",
+    ),
+    openclaw_tool(
+        name="search_web",
+        description="Search the web for a query and return a summary of results.",
+        input_model=SearchWebInput,
+        safety_level=ToolSafetyLevel.READ_ONLY,
+        render=lambda p: f"Search the web for: {p.query}. Summarize the top results briefly.",
+        action="The web search",
+    ),
+    openclaw_tool(
+        name="take_screenshot",
+        description="Take a screenshot of the current screen.",
+        input_model=NoInput,
+        safety_level=ToolSafetyLevel.READ_ONLY,
+        render=lambda p: "Take a screenshot of the current screen and describe what's visible.",
+        action="The screenshot",
+    ),
+]

@@ -140,20 +140,22 @@ def _match_response(user_message: str) -> str:
 
 # Keyword → (tool_name, default_args)
 _TOOL_MAP: dict[str, tuple[str, dict]] = {
-    "email": ("openclaw_send_email", {"to": "demo@example.com", "subject": "Orion Task", "body": ""}),
-    "send email": ("openclaw_send_email", {"to": "demo@example.com", "subject": "Orion Task", "body": ""}),
-    "inbox": ("openclaw_send_email", {"to": "inbox", "subject": "check", "body": "summarise"}),
-    "whatsapp": ("openclaw_send_whatsapp", {"recipient": "Priya", "message": ""}),
-    "telegram": ("openclaw_send_telegram", {"recipient": "contact", "message": ""}),
-    "slack": ("openclaw_send_slack", {"channel": "#general", "message": ""}),
-    "calendar": ("openclaw_send_email", {"to": "calendar", "subject": "check", "body": "events today"}),
-    "write file": ("openclaw_write_file", {"path": "output.txt", "content": ""}),
-    "run command": ("openclaw_run_command", {"command": "echo hello"}),
-    "remember": ("memory_remember", {"key": "", "value": ""}),
-    "recall": ("memory_recall", {"topic": ""}),
-    "what do i know": ("memory_recall", {"topic": ""}),
-    "forget": ("memory_forget", {"key": ""}),
-    "time": ("echo_tool", {"message": ""}),
+    "email": ("send_email", {"to": "demo@example.com", "subject": "Orion Task", "body": ""}),
+    "send email": ("send_email", {"to": "demo@example.com", "subject": "Orion Task", "body": ""}),
+    "inbox": ("summarize_inbox", {}),
+    "check email": ("check_email", {}),
+    "check my email": ("check_email", {}),
+    "whatsapp": ("send_whatsapp", {"recipient": "Priya", "message": ""}),
+    "telegram": ("send_telegram", {"recipient": "contact", "message": ""}),
+    "slack": ("send_slack", {"channel": "#general", "message": ""}),
+    "calendar": ("get_events", {"date": "today"}),
+    "write file": ("write_file", {"path": "output.txt", "content": ""}),
+    "run command": ("run_command", {"command": "echo hello"}),
+    "remember": ("remember_this", {"fact": ""}),
+    "recall": ("what_do_i_know_about", {"topic": ""}),
+    "what do i know": ("what_do_i_know_about", {"topic": ""}),
+    "forget": ("forget", {"topic": ""}),
+    "time": ("get_time", {}),
 }
 
 def _mock_plan(user_message: str) -> str:
@@ -181,17 +183,8 @@ def _mock_plan(user_message: str) -> str:
                     args["content"] = part.strip()
                 if "topic" in args and not args["topic"]:
                     args["topic"] = part.strip()
-                # Extract key/value for memory_remember
-                if "key" in args and "value" in args:
-                    m = re.search(r'(?:my\s+)?(.+?)\s+is\s+(.+)', part)
-                    if m:
-                        args["key"] = m.group(1).strip()
-                        args["value"] = m.group(2).strip()
-                    else:
-                        args["key"] = part.strip()
-                        args["value"] = part.strip()
-                elif "key" in args and not args["key"]:
-                    args["key"] = part.strip()
+                if "fact" in args and not args["fact"]:
+                    args["fact"] = part.strip()
 
                 steps.append({
                     "name": f"step_{len(steps) + 1}_{keyword.replace(' ', '_')}",

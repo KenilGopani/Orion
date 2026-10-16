@@ -55,6 +55,7 @@ def default_registry() -> ToolRegistry:
             input_model=EchoToolInput,
             handler=echo_handler,
             safety_level=ToolSafetyLevel.READ_ONLY,
+            voice=False,
         )
     )
     registry.register(
@@ -64,6 +65,7 @@ def default_registry() -> ToolRegistry:
             input_model=MockSendEmailInput,
             handler=mock_send_email_handler,
             safety_level=ToolSafetyLevel.EXTERNAL_SIDE_EFFECT,
+            voice=False,
         )
     )
     return registry
