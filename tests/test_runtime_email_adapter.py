@@ -6,7 +6,10 @@ from unittest.mock import AsyncMock, patch
 from tests.conftest import reset_test_db  # noqa: F401 — also sets up in-memory DB
 
 from orion.core.models import TaskStatus
-from orion.core.runtime import engine, events, run_gated_tool
+from orion.core.runtime import build_runtime
+
+runtime = build_runtime()
+engine, events, run_tool = runtime.engine, runtime.events, runtime.run_tool
 
 
 class RuntimeEmailAdapterTests(unittest.IsolatedAsyncioTestCase):
@@ -24,7 +27,7 @@ class RuntimeEmailAdapterTests(unittest.IsolatedAsyncioTestCase):
         mock_client = AsyncMock()
         mock_client.send_task.return_value = {"status": "success", "result": "sent"}
         with patch("orion.core.runtime.get_openclaw_client", return_value=mock_client):
-            task = await run_gated_tool(
+            task = await run_tool(
                 "openclaw_send_email",
                 "Send email",
                 to="demo@example.com",
@@ -37,7 +40,7 @@ class RuntimeEmailAdapterTests(unittest.IsolatedAsyncioTestCase):
         mock_client = AsyncMock()
         mock_client.send_task.return_value = {"status": "success", "result": "sent"}
         with patch("orion.core.runtime.get_openclaw_client", return_value=mock_client):
-            task = await run_gated_tool(
+            task = await run_tool(
                 "openclaw_send_email",
                 "Send email",
                 to="demo@example.com",

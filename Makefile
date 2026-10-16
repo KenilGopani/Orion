@@ -1,4 +1,4 @@
-.PHONY: dev mock-openclaw server voice api test test-cov lint lint-fix \
+.PHONY: dev mock-openclaw up voice test test-cov lint lint-fix \
         clean setup seed dashboard dashboard-build dashboard-setup check-openclaw help
 
 # ── Development (no API keys needed) ──────────────────────────
@@ -11,21 +11,21 @@ mock-openclaw: ## Start the mock OpenClaw server on port 18789
 seed: ## Seed the database with sample data
 	uv run python dev/seed_db.py
 
-# ── Production processes ───────────────────────────────────────
-server: ## Start the FastMCP tool server (port 8000)
-	uv run orion_server
+# ── Running Orion ──────────────────────────────────────────────
+up: dashboard/dist ## Run Orion: API, tools, scheduler, dashboard and voice on :8000
+	uv run orion up
 
-voice: ## Start the LiveKit voice agent
+dashboard/dist:
+	$(MAKE) dashboard-setup dashboard-build
+
+voice: ## Run only the voice agent (against an already running `make up`)
 	uv run orion_voice
-
-api: ## Start the FastAPI runtime API (port 8010)
-	uv run orion_api
 
 # ── Frontend dashboard ─────────────────────────────────────────
 dashboard-setup: ## Install dashboard dependencies
 	cd dashboard && npm install
 
-dashboard: ## Start the dashboard dev server
+dashboard: ## Start the dashboard dev server with hot reload (proxies /api to :8000)
 	cd dashboard && npx vite
 
 dashboard-build: ## Build the dashboard for production
@@ -55,7 +55,7 @@ setup: ## Initial project setup — install deps and create .env
 	@echo "╠══════════════════════════════════════════════╣"
 	@echo "║  For dev (no API keys):  make dev            ║"
 	@echo "║  For production:         edit .env            ║"
-	@echo "║                          then make server     ║"
+	@echo "║                          then make up         ║"
 	@echo "╚══════════════════════════════════════════════╝"
 
 # ── Utilities ──────────────────────────────────────────────────

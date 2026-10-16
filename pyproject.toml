@@ -23,9 +23,8 @@ dependencies = [
 ]
 
 [project.scripts]
-orion_server = "server:main"
+orion = "orion.cli:main"
 orion_voice = "agent:dev"
-orion_api = "orion.api.main:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -40,7 +39,7 @@ module = ["apscheduler.*"]
 ignore_missing_imports = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["orion", "bridge", "server.py", "agent.py"]
+packages = ["orion", "bridge", "agent.py"]
 
 [dependency-groups]
 dev = [

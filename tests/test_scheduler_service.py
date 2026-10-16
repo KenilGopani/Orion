@@ -5,13 +5,16 @@ Tests for the OrionScheduler service and the /scheduler/jobs API endpoint.
 from __future__ import annotations
 
 import unittest
-from unittest.mock import AsyncMock, MagicMock, patch
+from dataclasses import replace
+from unittest.mock import AsyncMock, MagicMock
 
 from fastapi.testclient import TestClient
 
-from orion.api.app import app
+from tests.conftest import reset_test_db
+
+from orion.app import create_app
+from orion.config import config
 from orion.services.scheduler import OrionScheduler
-from tests.conftest import reset_test_db  # noqa: F401
 
 
 class SchedulerServiceTests(unittest.IsolatedAsyncioTestCase):
@@ -22,10 +25,7 @@ class SchedulerServiceTests(unittest.IsolatedAsyncioTestCase):
         self.scheduler = OrionScheduler(self.mock_engine)
 
     def tearDown(self) -> None:
-        try:
-            self.scheduler.scheduler.shutdown()
-        except Exception:
-            pass
+        self.scheduler.shutdown()
 
     async def test_jobs_registered_when_enabled(self) -> None:
         """Scheduler should add jobs only when enabled in config."""
@@ -68,34 +68,48 @@ class SchedulerServiceTests(unittest.IsolatedAsyncioTestCase):
             "Summarize my inbox from the last 24 hours."
         )
 
-    def test_api_endpoint_structure(self) -> None:
-        """API GET /scheduler/jobs endpoint returns all jobs with status and schedule."""
-        # Patch configuration values to ensure deterministic results in test
-        with patch("orion.config.config") as mock_cfg:
-            mock_cfg.enable_scheduler = True
-            mock_cfg.morning_briefing_enabled = True
-            mock_cfg.morning_briefing_time = "07:30"
-            mock_cfg.email_digest_enabled = False
-            mock_cfg.email_digest_time = "18:30"
+    def test_api_endpoint_reports_live_scheduler(self) -> None:
+        """GET /api/scheduler/jobs lists every configured job; next_run comes
+        from the scheduler running inside the app, so only enabled jobs have one."""
+        cfg = replace(
+            config,
+            enable_scheduler=True,
+            morning_briefing_enabled=True,
+            morning_briefing_time="07:30",
+            email_digest_enabled=False,
+            email_digest_time="18:30",
+        )
+        app = create_app(cfg, check_openclaw=False)
 
-            client = TestClient(app)
-            response = client.get("/scheduler/jobs")
+        with TestClient(app) as client:
+            self.assertIsNotNone(app.state.runtime.scheduler)
+            response = client.get("/api/scheduler/jobs")
 
-            self.assertEqual(response.status_code, 200)
-            data = response.json()
-            self.assertEqual(len(data), 2)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data), 2)
 
-            mb_job = next(j for j in data if j["id"] == "morning_briefing")
-            self.assertEqual(mb_job["name"], "Morning Briefing")
-            self.assertEqual(mb_job["schedule"], "07:30")
-            self.assertTrue(mb_job["enabled"])
-            self.assertIsNotNone(mb_job["next_run"])
+        mb_job = next(j for j in data if j["id"] == "morning_briefing")
+        self.assertEqual(mb_job["name"], "Morning Briefing")
+        self.assertEqual(mb_job["schedule"], "07:30")
+        self.assertTrue(mb_job["enabled"])
+        self.assertIsNotNone(mb_job["next_run"])
 
-            ed_job = next(j for j in data if j["id"] == "email_digest")
-            self.assertEqual(ed_job["name"], "Email Digest")
-            self.assertEqual(ed_job["schedule"], "18:30")
-            self.assertFalse(ed_job["enabled"])
-            self.assertIsNone(ed_job["next_run"])
+        ed_job = next(j for j in data if j["id"] == "email_digest")
+        self.assertEqual(ed_job["name"], "Email Digest")
+        self.assertEqual(ed_job["schedule"], "18:30")
+        self.assertFalse(ed_job["enabled"])
+        self.assertIsNone(ed_job["next_run"])
+
+        # The lifespan stopped the scheduler on shutdown.
+        self.assertIsNone(app.state.runtime.scheduler)
+
+    def test_api_endpoint_without_scheduler(self) -> None:
+        """With the scheduler off, jobs are listed but none has a next run."""
+        cfg = replace(config, enable_scheduler=False, morning_briefing_enabled=True)
+        with TestClient(create_app(cfg, check_openclaw=False)) as client:
+            data = client.get("/api/scheduler/jobs").json()
+        self.assertTrue(all(job["next_run"] is None for job in data))
 
 
 if __name__ == "__main__":

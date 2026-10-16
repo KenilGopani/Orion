@@ -3,11 +3,17 @@ Code tools — create projects, run scripts, open editor via OpenClaw.
 """
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from bridge import get_openclaw_client
 from orion.tools._gated import run_gated
 
+if TYPE_CHECKING:
+    from orion.core.runtime import Runtime
 
-def register(mcp):
+
+def register(mcp, runtime: Runtime) -> None:
 
     @mcp.tool()
     async def create_project(
@@ -45,6 +51,7 @@ def register(mcp):
             language: Programming language of the code.
         """
         return await run_gated(
+            runtime,
             "openclaw_run_code",
             f"Run {language} code ({len(code.splitlines())} lines)",
             "The code",

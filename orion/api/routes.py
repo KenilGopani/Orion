@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from orion.core.engine import ExecutionEngine
 from orion.core.models import TaskStatus
+from orion.services.scheduler import describe_jobs
+
+if TYPE_CHECKING:
+    from orion.core.runtime import Runtime
 
 
 class CreateTaskRequest(BaseModel):
@@ -23,8 +26,9 @@ class RejectTaskRequest(BaseModel):
     rejected_by: str = "human_operator"
 
 
-def build_routes(engine: ExecutionEngine, store: Any, events: Any):
+def build_routes(runtime: Runtime) -> APIRouter:
     router = APIRouter()
+    engine, store, events = runtime.engine, runtime.store, runtime.events
 
     # ── Tasks ─────────────────────────────────────────────────────
 
@@ -141,57 +145,17 @@ def build_routes(engine: ExecutionEngine, store: Any, events: Any):
     # ── Scheduler ─────────────────────────────────────────────────
 
     @router.get("/scheduler/jobs")
-    async def list_scheduler_jobs():
-        """Return the list of configured scheduler jobs and their status/next run time."""
-        from orion.config import config
-        from apscheduler.schedulers.asyncio import AsyncIOScheduler
-        from apscheduler.triggers.cron import CronTrigger
-
-        jobs_info = []
-        temp_sched = AsyncIOScheduler()
-
-        try:
-            # Register both jobs with their configured trigger times to compute next_run_time
-            h_mb, m_mb = map(int, config.morning_briefing_time.split(":"))
-            temp_sched.add_job(lambda: None, CronTrigger(hour=h_mb, minute=m_mb), id="morning_briefing")
-
-            h_ed, m_ed = map(int, config.email_digest_time.split(":"))
-            temp_sched.add_job(lambda: None, CronTrigger(hour=h_ed, minute=m_ed), id="email_digest")
-
-            # Start to calculate next_run_time
-            temp_sched.start()
-
-            for job_id, is_enabled, time_str in [
-                ("morning_briefing", config.morning_briefing_enabled, config.morning_briefing_time),
-                ("email_digest", config.email_digest_enabled, config.email_digest_time),
-            ]:
-                job = temp_sched.get_job(job_id)
-                next_run = None
-                if job and config.enable_scheduler and is_enabled:
-                    next_run = job.next_run_time.isoformat() if job.next_run_time else None
-
-                jobs_info.append({
-                    "id": job_id,
-                    "name": job_id.replace("_", " ").title(),
-                    "schedule": time_str,
-                    "enabled": is_enabled,
-                    "next_run": next_run,
-                })
-        finally:
-            try:
-                temp_sched.shutdown()
-            except Exception:
-                pass
-
-        return jobs_info
+    def list_scheduler_jobs():
+        """Configured scheduler jobs, with next run times from the live scheduler."""
+        return describe_jobs(runtime.config, runtime.scheduler)
 
     # ── Health ────────────────────────────────────────────────────
 
     @router.get("/health")
     async def health():
         from bridge import get_openclaw_client
-        from orion.config import config
 
+        config = runtime.config
         openclaw_ok = False
         try:
             client = get_openclaw_client()

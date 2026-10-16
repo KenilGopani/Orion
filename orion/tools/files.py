@@ -3,11 +3,17 @@ File tools — read, write, and search files via OpenClaw.
 """
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from bridge import get_openclaw_client
 from orion.tools._gated import run_gated
 
+if TYPE_CHECKING:
+    from orion.core.runtime import Runtime
 
-def register(mcp):
+
+def register(mcp, runtime: Runtime) -> None:
 
     @mcp.tool()
     async def read_file(path: str) -> str:
@@ -32,6 +38,7 @@ def register(mcp):
             content: Content to write into the file.
         """
         return await run_gated(
+            runtime,
             "openclaw_write_file",
             f"Write file: {path}",
             f"Writing to '{path}'",

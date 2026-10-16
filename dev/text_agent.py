@@ -19,7 +19,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from orion.config import config
-from orion.core.runtime import engine, store
+from orion.core.runtime import build_runtime
+from orion.db.session import init_db
+
+init_db()
+runtime = build_runtime()
+engine, store, events = runtime.engine, runtime.store, runtime.events
 
 
 BANNER = """
@@ -113,8 +118,6 @@ async def main() -> None:
                 print("  No tasks yet.\n")
                 continue
             last_task = tasks[-1]
-            from orion.core.runtime import events
-
             task_events = events.list_events(last_task.id)
             if not task_events:
                 print(f"  No events for task: {last_task.user_intent}\n")

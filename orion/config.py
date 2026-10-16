@@ -28,7 +28,6 @@ class Config:
     # ── Per-subsystem feature flags ───────────────────────────────
     enable_voice: bool = field(default_factory=lambda: _env_bool("ENABLE_VOICE", "true"))
     enable_scheduler: bool = field(default_factory=lambda: _env_bool("ENABLE_SCHEDULER"))
-    enable_api: bool = field(default_factory=lambda: _env_bool("ENABLE_API", "true"))
 
     # ── Scheduled Actions ─────────────────────────────────────────
     morning_briefing_enabled: bool = field(
@@ -96,9 +95,11 @@ class Config:
     user_name: str = field(default_factory=lambda: os.getenv("ORION_USER_NAME", "sir"))
     wake_word: str = field(default_factory=lambda: os.getenv("ORION_WAKE_WORD", "orion"))
 
-    # ── MCP server ────────────────────────────────────────────────
-    mcp_server_port: int = field(
-        default_factory=lambda: int(os.getenv("MCP_SERVER_PORT", "8000"))
+    # ── Server ────────────────────────────────────────────────────
+    # One port serves the API (/api), MCP tools (/mcp) and the dashboard (/).
+    # MCP_SERVER_PORT is still honoured for .env files that predate ORION_PORT.
+    port: int = field(
+        default_factory=lambda: int(os.getenv("ORION_PORT") or os.getenv("MCP_SERVER_PORT") or "8000")
     )
 
     # ── Validation ────────────────────────────────────────────────

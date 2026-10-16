@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import re
+from typing import TYPE_CHECKING
 
 logger = logging.getLogger("orion.tools.memory")
 
@@ -95,8 +96,11 @@ def _heuristic_extract(fact: str) -> tuple[str, str]:
     # Fallback: slugify whole fact
     return _slugify(fact), fact
 
+if TYPE_CHECKING:
+    from orion.core.runtime import Runtime
 
-def register(mcp):
+
+def register(mcp, runtime: Runtime) -> None:
 
     @mcp.tool()
     async def remember_this(fact: str) -> str:

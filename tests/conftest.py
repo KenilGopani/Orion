@@ -5,20 +5,28 @@ never touch the production database at ``~/.orion/orion.db``.
 
 from __future__ import annotations
 
-import types
-import sys
+import dotenv
 
-# Shim dotenv before any Orion imports
-sys.modules.setdefault("dotenv", types.SimpleNamespace(load_dotenv=lambda: None))
+# Keep a developer's .env out of tests: disable loading before any Orion import.
+# (Only load_dotenv is replaced; libraries such as the MCP SDK need the rest.)
+dotenv.load_dotenv = lambda *args, **kwargs: False
 
-# These imports must follow the dotenv shim above, hence the E402 waivers.
+# These imports must follow the patch above, hence the E402 waivers.
+from sqlalchemy.pool import StaticPool  # noqa: E402
 from sqlmodel import SQLModel, create_engine  # noqa: E402
 
 import orion.db.session as db_session  # noqa: E402
 import orion.db.models  # noqa: E402,F401 — register table metadata
 
 # Replace the engine with an in-memory SQLite for tests
-_test_engine = create_engine("sqlite://", echo=False)
+# StaticPool shares one connection, so API routes run in worker threads see the
+# same in-memory database as the test itself.
+_test_engine = create_engine(
+    "sqlite://",
+    echo=False,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
 db_session.engine = _test_engine
 
 

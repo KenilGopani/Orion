@@ -3,12 +3,18 @@ System tools — time, system info, shell commands via OpenClaw.
 """
 
 from __future__ import annotations
+
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
+
 from bridge import get_openclaw_client
 from orion.tools._gated import run_gated
 
+if TYPE_CHECKING:
+    from orion.core.runtime import Runtime
 
-def register(mcp):
+
+def register(mcp, runtime: Runtime) -> None:
 
     @mcp.tool()
     async def get_time() -> str:
@@ -40,6 +46,7 @@ def register(mcp):
             command: The shell command to execute.
         """
         return await run_gated(
+            runtime,
             "openclaw_run_command",
             f"Run command: {command[:80]}",
             "The command",
