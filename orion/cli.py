@@ -3,6 +3,7 @@
 
     orion up              API + MCP tools + scheduler + dashboard, plus the voice agent
     orion up --no-voice   everything except the voice agent
+    orion up --offline    no internet: local models and a local LiveKit server
     orion openclaw-config least-privilege OpenClaw agents + safety check
     orion parakeet-server local Parakeet speech-to-text (Apple Silicon)
     orion eval            tool-selection accuracy for the configured LLM
@@ -51,7 +52,14 @@ def _start_voice(port: int) -> subprocess.Popen[bytes] | None:
         return None
     logger.info("Starting voice agent…")
     # LiveKit's worker model needs its own process; it reaches the tools over /mcp/sse.
-    env = {**os.environ, "ORION_PORT": str(port)}
+    # LiveKit settings come from config, which offline mode may have pointed locally.
+    env = {
+        **os.environ,
+        "ORION_PORT": str(port),
+        "LIVEKIT_URL": config.livekit_url,
+        "LIVEKIT_API_KEY": config.livekit_api_key,
+        "LIVEKIT_API_SECRET": config.livekit_api_secret,
+    }
     return subprocess.Popen([sys.executable, "-m", "agent", "dev"], env=env)
 
 
@@ -68,14 +76,34 @@ def _stop_voice(proc: subprocess.Popen[bytes] | None) -> None:
 
 def _up(args: argparse.Namespace) -> int:
     from orion.app import create_app
+    from orion.offline import LocalLiveKit, offline_problems, use_local_livekit
 
     config.validate()
+    livekit: LocalLiveKit | None = None
+    if args.offline or config.offline:
+        problems = offline_problems(config)
+        if problems:
+            print("Offline mode needs every component on this machine:", file=sys.stderr)
+            for problem in problems:
+                print(f"  • {problem}", file=sys.stderr)
+            return 2
+        livekit = LocalLiveKit()
+        try:
+            livekit.start()
+        except RuntimeError as exc:
+            print(exc, file=sys.stderr)
+            return 2
+        use_local_livekit(config, livekit)
+        logger.info("Offline mode: local models, LiveKit at %s", livekit.url)
+
     voice = None if args.no_voice or not config.enable_voice else _start_voice(args.port)
     try:
         logger.info("Orion on http://%s:%d  (dashboard /, API /api, MCP /mcp/sse)", args.host, args.port)
         uvicorn.run(create_app(), host=args.host, port=args.port, log_level="info")
     finally:
         _stop_voice(voice)
+        if livekit:
+            livekit.stop()
     return 0
 
 
@@ -163,6 +191,10 @@ def main(argv: list[str] | None = None) -> int:
     up.add_argument("--host", default="127.0.0.1", help="interface to bind (default: 127.0.0.1)")
     up.add_argument("--port", type=int, default=config.port, help="port (default: ORION_PORT or 8000)")
     up.add_argument("--no-voice", action="store_true", help="don't start the voice agent")
+    up.add_argument(
+        "--offline", action="store_true",
+        help="local models only, with a local LiveKit server (or ORION_OFFLINE=true)",
+    )
     up.set_defaults(handler=_up)
 
     oc = commands.add_parser(

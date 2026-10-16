@@ -5,6 +5,7 @@ import TaskDetail from "./components/TaskDetail";
 import ApprovalPanel from "./components/ApprovalPanel";
 import ConversationLog from "./components/ConversationLog";
 import SchedulerPanel from "./components/SchedulerPanel";
+import VoicePanel from "./components/VoicePanel";
 import { useHealth, useTasks, useConversations, useToast, useSchedulerJobs } from "./hooks/useOrion";
 
 export default function App() {
@@ -22,6 +23,7 @@ export default function App() {
 
       <main className="main-content">
         <div className="sidebar">
+          <VoicePanel />
           <TaskList
             tasks={tasks}
             selectedId={selectedTaskId}

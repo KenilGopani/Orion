@@ -77,6 +77,7 @@ flowchart LR
 | 8 | **Malicious OpenClaw skill** | Out of Orion's reach: skills run with your permissions inside OpenClaw. Scoped agents limit which tools each call can use, but a malicious skill an agent is allowed to use can do anything. Vet skills before installing. | ❌ Not mitigated |
 | 9 | **OpenClaw gateway exposed to the network** | At startup Orion warns if `gateway.bind` isn't `loopback`, if `gateway.auth.mode` is `none`, or if exec mode is `full`. Orion can't change OpenClaw's config for you. | ⚠️ Detected, not enforced |
 | 10 | **Another program running as your user** | Out of scope. It can read `~/.orion/api-token` and the database directly; no local secret stops a process with your permissions. | ❌ Not mitigated |
+| 10b | **Offline LiveKit server reached from the network** | `livekit-server --dev` uses publicly known credentials, so Orion always binds it to `127.0.0.1`. The Talk panel's room token comes from `/api/voice/token`, protected like the install token (loopback Host, no CORS). | ✅ Mitigated |
 | 11 | **Secrets in memories leak to a cloud LLM** | Memories are injected into the LLM's system prompt. Orion no longer suggests storing passwords, but a user can still say "remember my PIN is…". With a local LLM (Ollama) nothing leaves the machine. | ⚠️ User's choice |
 
 ## Setting up least-privilege OpenClaw agents
@@ -110,7 +111,8 @@ Orion warns about it at startup.
 - [ ] Only skills you've reviewed are installed
 - [ ] Orion binds to `127.0.0.1` (the default); `ORION_ALLOWED_HOSTS` is empty
       unless you deliberately serve it under another name
-- [ ] Prefer a local LLM (`LLM_PROVIDER=ollama`) if your memories are sensitive
+- [ ] Prefer a local LLM (`LLM_PROVIDER=ollama`) if your memories are sensitive,
+      or go fully offline (`orion up --offline`) so no audio or text leaves the machine
 
 ## Where this lives in the code
 

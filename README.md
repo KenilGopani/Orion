@@ -150,7 +150,7 @@ That single process serves everything on port 8000 and starts the voice agent:
 
 Use `orion up --no-voice` to run without the voice agent. Voice is also skipped, with a warning, when the LiveKit credentials aren't set.
 
-Open the [LiveKit Agents Playground](https://agents-playground.livekit.io) and connect to your room. Start talking to Orion!
+Open the dashboard and click **Start talking** in the Talk panel. Your browser joins the voice room directly, with no hosted playground needed.
 
 ---
 
@@ -376,6 +376,40 @@ and share it with OpenClaw; two models won't fit in 16 GB.
 
 ---
 
+## Offline mode
+
+With local models, Orion still needs LiveKit Cloud to carry audio between your
+browser and the voice agent. Offline mode replaces that with LiveKit's
+open-source server on this machine, so **nothing leaves your computer**.
+
+1. Make every component local (`orion up --offline` refuses to start otherwise, and says what to change):
+   ```bash
+   STT_PROVIDER=parakeet_local   # or whisper_local
+   TTS_PROVIDER=kokoro           # or mlx_audio
+   LLM_PROVIDER=ollama
+   ```
+   Point OpenClaw at a local model too (e.g. the same Ollama model), or its own
+   agent will still call the cloud.
+2. Install the LiveKit server once:
+   ```bash
+   brew install livekit
+   ```
+3. Run:
+   ```bash
+   uv run orion up --offline      # or ORION_OFFLINE=true make up
+   ```
+   Orion attaches to a LiveKit server already on port 7880 or starts
+   `livekit-server --dev` itself, bound to 127.0.0.1 (its dev credentials are
+   well known, so it never listens beyond this machine), and stops it on exit.
+   No LiveKit account or keys are needed.
+4. Open http://127.0.0.1:8000 and click **Start talking**. The voice client is
+   bundled into the dashboard, so it needs no CDN.
+
+**Prove it:** turn Wi-Fi off and have a full conversation. Speech-to-text, the
+LLM, text-to-speech, the transport and the dashboard all run locally.
+
+---
+
 ## Evals and benchmarks
 
 Orion measures its two numbers that matter for a voice agent instead of
@@ -447,7 +481,7 @@ The voice agent reaches its tools at `http://127.0.0.1:8000/mcp/sse`. `orion up`
 
 1. Verify your LiveKit credentials in `.env`
 2. Check that `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` are set
-3. Try the [LiveKit Agents Playground](https://agents-playground.livekit.io) to test connectivity
+3. Click **Start talking** in the dashboard's Talk panel; errors from LiveKit are shown there
 
 ### "ElevenLabs voice error"
 

@@ -100,6 +100,10 @@ class Config:
     livekit_url: str = field(default_factory=lambda: os.getenv("LIVEKIT_URL", ""))
     livekit_api_key: str = field(default_factory=lambda: os.getenv("LIVEKIT_API_KEY", ""))
     livekit_api_secret: str = field(default_factory=lambda: os.getenv("LIVEKIT_API_SECRET", ""))
+    # Room the voice agent and the dashboard's Talk panel meet in.
+    voice_room: str = field(default_factory=lambda: os.getenv("ORION_VOICE_ROOM", "orion"))
+    # Fully offline: local models only, and a local LiveKit server instead of the cloud.
+    offline: bool = field(default_factory=lambda: _env_bool("ORION_OFFLINE"))
 
     # ── OpenClaw ──────────────────────────────────────────────────
     openclaw_url: str = field(
