@@ -8,11 +8,9 @@ import unittest
 from dataclasses import replace
 from unittest.mock import AsyncMock, MagicMock
 
-from fastapi.testclient import TestClient
 
-from tests.conftest import reset_test_db
+from tests.conftest import local_client, make_app, reset_test_db
 
-from orion.app import create_app
 from orion.config import config
 from orion.services.scheduler import OrionScheduler
 
@@ -79,9 +77,9 @@ class SchedulerServiceTests(unittest.IsolatedAsyncioTestCase):
             email_digest_enabled=False,
             email_digest_time="18:30",
         )
-        app = create_app(cfg, check_openclaw=False)
+        app = make_app(cfg)
 
-        with TestClient(app) as client:
+        with local_client(app) as client:
             self.assertIsNotNone(app.state.runtime.scheduler)
             response = client.get("/api/scheduler/jobs")
 
@@ -107,7 +105,7 @@ class SchedulerServiceTests(unittest.IsolatedAsyncioTestCase):
     def test_api_endpoint_without_scheduler(self) -> None:
         """With the scheduler off, jobs are listed but none has a next run."""
         cfg = replace(config, enable_scheduler=False, morning_briefing_enabled=True)
-        with TestClient(create_app(cfg, check_openclaw=False)) as client:
+        with local_client(make_app(cfg)) as client:
             data = client.get("/api/scheduler/jobs").json()
         self.assertTrue(all(job["next_run"] is None for job in data))
 

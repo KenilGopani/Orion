@@ -44,7 +44,10 @@ def _sample_args(schema: dict[str, Any]) -> dict[str, Any]:
     """Minimal valid arguments for a tool's JSON schema (required fields only)."""
     samples = {"string": "sample", "integer": 1, "boolean": True}
     props = schema.get("properties", {})
-    return {name: samples[props[name]["type"]] for name in schema.get("required", [])}
+    args = {name: samples[props[name]["type"]] for name in schema.get("required", [])}
+    if "url" in args:
+        args["url"] = "https://example.com"
+    return args
 
 
 class ToolSurfaceTests(unittest.IsolatedAsyncioTestCase):
@@ -75,6 +78,13 @@ class ToolSurfaceTests(unittest.IsolatedAsyncioTestCase):
     def test_every_voice_tool_has_a_reviewed_safety_level(self) -> None:
         actual = {t.name: t.safety_level for t in self.runtime.registry.list_tools() if t.voice}
         self.assertEqual(actual, EXPECTED_SAFETY)
+
+    def test_voice_cannot_approve_or_reject(self) -> None:
+        """Approval must come from a channel the LLM can't drive (SECURITY.md #7)."""
+        for tool in self.runtime.registry.list_tools():
+            if tool.voice:
+                with self.subTest(tool=tool.name):
+                    self.assertNotRegex(tool.name, r"approv|reject|grant|confirm|authori[sz]e")
 
     def test_engine_fallbacks_are_not_exposed_to_voice(self) -> None:
         hidden = {t.name for t in self.runtime.registry.list_tools() if not t.voice}
@@ -117,7 +127,8 @@ class ToolSurfaceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(content[0].text, "Three unread emails.")
         client.send_task.assert_awaited_once_with(
-            "Check my unread emails, get the last 3. Summarize what's urgent or important."
+            "Check my unread emails, get the last 3. Summarize what's urgent or important.",
+            agent=None,
         )
         task = self.runtime.store.list_tasks()[-1]
         # The audit record holds the full arguments that ran, defaults included.

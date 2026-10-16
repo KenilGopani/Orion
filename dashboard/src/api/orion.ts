@@ -96,6 +96,30 @@ async function json<T>(r: Response): Promise<T> {
   return r.json();
 }
 
+// State-changing routes require the per-install token. It's fetched once from
+// the same origin; a page on another site can't read it (no CORS grant).
+let tokenRequest: Promise<string> | null = null;
+
+function apiToken(): Promise<string> {
+  tokenRequest ??= fetch(`${API_BASE}/auth/token`)
+    .then(json<{ token: string }>)
+    .then((body) => body.token)
+    .catch((err) => {
+      tokenRequest = null; // retry on the next call
+      throw err;
+    });
+  return tokenRequest;
+}
+
+async function post<T>(path: string, body: unknown): Promise<T> {
+  const token = await apiToken();
+  return fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Orion-Token": token },
+    body: JSON.stringify(body),
+  }).then(json<T>);
+}
+
 export const orionApi = {
   health: (): Promise<HealthResponse> =>
     fetch(`${API_BASE}/health`).then(json<HealthResponse>),
@@ -110,18 +134,10 @@ export const orionApi = {
     fetch(`${API_BASE}/tasks/${id}/events`).then(json<RuntimeEvent[]>),
 
   approveTask: (id: string): Promise<Task> =>
-    fetch(`${API_BASE}/tasks/${id}/approve`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ approved_by: "dashboard_user" }),
-    }).then(json<Task>),
+    post<Task>(`/tasks/${id}/approve`, { approved_by: "dashboard_user" }),
 
   rejectTask: (id: string): Promise<Task> =>
-    fetch(`${API_BASE}/tasks/${id}/reject`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rejected_by: "dashboard_user" }),
-    }).then(json<Task>),
+    post<Task>(`/tasks/${id}/reject`, { rejected_by: "dashboard_user" }),
 
   getConversations: (): Promise<ConversationMessage[]> =>
     fetch(`${API_BASE}/conversations`).then(json<ConversationMessage[]>),

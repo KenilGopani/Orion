@@ -11,14 +11,15 @@ from pydantic import BaseModel, Field
 from orion.core.models import ToolSafetyLevel
 from orion.core.registry import ToolDefinition
 from orion.tools._openclaw import openclaw_tool
+from orion.tools._safe import HttpUrl, Line, q
 
 
 class OpenUrlInput(BaseModel):
-    url: str = Field(description="The URL to open.")
+    url: HttpUrl = Field(description="The http(s) URL to open.")
 
 
 class SearchWebInput(BaseModel):
-    query: str = Field(description="The search query.")
+    query: Line = Field(description="The search query.")
 
 
 class NoInput(BaseModel):
@@ -31,7 +32,7 @@ TOOLS: list[ToolDefinition[Any]] = [
         description="Open a URL in the system's web browser.",
         input_model=OpenUrlInput,
         safety_level=ToolSafetyLevel.LOW_RISK,
-        render=lambda p: f"Open the following URL in the web browser: {p.url}",
+        render=lambda p: f"Open the URL {q(p.url)} in the web browser.",
         action="Opening the link",
     ),
     openclaw_tool(
@@ -39,7 +40,7 @@ TOOLS: list[ToolDefinition[Any]] = [
         description="Search the web for a query and return a summary of results.",
         input_model=SearchWebInput,
         safety_level=ToolSafetyLevel.READ_ONLY,
-        render=lambda p: f"Search the web for: {p.query}. Summarize the top results briefly.",
+        render=lambda p: f"Search the web for {q(p.query)}. Summarize the top results briefly.",
         action="The web search",
     ),
     openclaw_tool(

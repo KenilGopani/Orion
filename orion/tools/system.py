@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from orion.core.models import ToolSafetyLevel
 from orion.core.registry import ToolDefinition
 from orion.tools._openclaw import openclaw_tool
+from orion.tools._safe import q
 
 
 class NoInput(BaseModel):
@@ -58,7 +59,7 @@ TOOLS: list[ToolDefinition[Any]] = [
         description="Run a shell command on the user's system. Requires approval before execution.",
         input_model=RunCommandInput,
         safety_level=ToolSafetyLevel.DESTRUCTIVE,
-        render=lambda p: f"Run the following shell command and tell me the output: {p.command}",
+        render=lambda p: f"Run the shell command {q(p.command)} and tell me the output.",
         action="The command",
         describe=lambda p: f"Run command: {p.command[:80]}",
     ),

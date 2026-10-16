@@ -23,14 +23,17 @@ from mcp.server.fastmcp import FastMCP
 
 from bridge.openclaw_client import OpenClawClient
 from orion.api.routes import build_routes
+from orion.api.security import LoopbackHostMiddleware, load_or_create_token
 from orion.config import Config, config as default_config
 from orion.core.runtime import Runtime, build_runtime
-from orion.db.session import init_db
+from orion.db.session import DB_DIR, init_db
+from orion.openclaw_setup import log_openclaw_safety
 from orion.tools._mcp import expose_tools
 
 logger = logging.getLogger("orion.app")
 
 DASHBOARD_DIST = Path(__file__).resolve().parent.parent / "dashboard" / "dist"
+TOKEN_PATH = DB_DIR / "api-token"
 MCP_MOUNT_PATH = "/mcp"
 
 _DASHBOARD_MISSING = """<!doctype html><meta charset="utf-8"><title>Orion</title>
@@ -79,10 +82,19 @@ async def _log_openclaw_health(cfg: Config) -> None:
         )
 
 
-def create_app(cfg: Config | None = None, *, check_openclaw: bool = True) -> FastAPI:
-    """Build the Orion app. Constructs exactly one runtime (and engine)."""
+def create_app(
+    cfg: Config | None = None,
+    *,
+    check_openclaw: bool = True,
+    api_token: str | None = None,
+) -> FastAPI:
+    """Build the Orion app. Constructs exactly one runtime (and engine).
+
+    ``api_token`` defaults to the per-install token in ``~/.orion/api-token``.
+    """
     cfg = cfg or default_config
     runtime = build_runtime(cfg)
+    token = api_token or load_or_create_token(TOKEN_PATH)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -94,6 +106,7 @@ def create_app(cfg: Config | None = None, *, check_openclaw: bool = True) -> Fas
             runtime.scheduler.start(cfg)
         if check_openclaw:
             await _log_openclaw_health(cfg)
+            log_openclaw_safety(cfg)
         try:
             yield
         finally:
@@ -111,8 +124,10 @@ def create_app(cfg: Config | None = None, *, check_openclaw: bool = True) -> Fas
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # Added last, so it runs first: refuse non-loopback Host headers (DNS rebinding).
+    app.add_middleware(LoopbackHostMiddleware, allowed_hosts=cfg.allowed_hosts)
 
-    app.include_router(build_routes(runtime), prefix="/api")
+    app.include_router(build_routes(runtime, token), prefix="/api")
     # Starlette's Mount sets root_path, which the SSE transport already prefixes
     # onto its message URL; passing mount_path to sse_app() would double it.
     app.mount(MCP_MOUNT_PATH, build_mcp(runtime).sse_app())

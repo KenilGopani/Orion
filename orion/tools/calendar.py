@@ -11,40 +11,44 @@ from pydantic import BaseModel, Field
 from orion.core.models import ToolSafetyLevel
 from orion.core.registry import ToolDefinition
 from orion.tools._openclaw import openclaw_tool
+from orion.tools._safe import Line, q
 
 
 class GetEventsInput(BaseModel):
-    date: str = Field("today", description='"today", "tomorrow", or a date like "2025-01-15".')
+    date: Line = Field("today", description='"today", "tomorrow", or a date like "2025-01-15".')
     count: int = Field(5, description="Maximum number of events to return.")
 
 
 class CreateEventInput(BaseModel):
-    title: str = Field(description="Event title / subject.")
-    date: str = Field(description='Date of the event, e.g. "2025-01-15" or "next Monday".')
-    time: str = Field(description='Start time, e.g. "10:00 AM" or "14:30".')
-    duration: str = Field("1 hour", description='How long it lasts, e.g. "30 minutes".')
-    attendees: str = Field("", description="Comma-separated attendee names or emails (optional).")
+    title: Line = Field(description="Event title / subject.")
+    date: Line = Field(description='Date of the event, e.g. "2025-01-15" or "next Monday".')
+    time: Line = Field(description='Start time, e.g. "10:00 AM" or "14:30".')
+    duration: Line = Field("1 hour", description='How long it lasts, e.g. "30 minutes".')
+    attendees: Line = Field("", description="Comma-separated attendee names or emails (optional).")
 
 
 class RescheduleEventInput(BaseModel):
-    event_name: str = Field(description="Name or description of the event to reschedule.")
-    new_date: str = Field("", description="New date (optional if only changing the time).")
-    new_time: str = Field("", description="New time (optional if only changing the date).")
+    event_name: Line = Field(description="Name or description of the event to reschedule.")
+    new_date: Line = Field("", description="New date (optional if only changing the time).")
+    new_time: Line = Field("", description="New time (optional if only changing the date).")
 
 
 def _render_create_event(p: CreateEventInput) -> str:
-    task = f"Create a calendar event titled '{p.title}' on {p.date} at {p.time}, lasting {p.duration}."
+    task = (
+        f"Create a calendar event titled {q(p.title)} on {q(p.date)} at {q(p.time)}, "
+        f"lasting {q(p.duration)}."
+    )
     if p.attendees:
-        task += f" Invite: {p.attendees}."
+        task += f" Invite: {q(p.attendees)}."
     return task
 
 
 def _render_reschedule_event(p: RescheduleEventInput) -> str:
-    task = f"Reschedule my '{p.event_name}' event"
+    task = f"Reschedule my {q(p.event_name)} event"
     if p.new_date:
-        task += f" to {p.new_date}"
+        task += f" to {q(p.new_date)}"
     if p.new_time:
-        task += f" at {p.new_time}"
+        task += f" at {q(p.new_time)}"
     return task + "."
 
 
@@ -54,7 +58,7 @@ TOOLS: list[ToolDefinition[Any]] = [
         description="Check the user's calendar for upcoming events.",
         input_model=GetEventsInput,
         safety_level=ToolSafetyLevel.READ_ONLY,
-        render=lambda p: f"Check my calendar for {p.date}. Show me the next {p.count} events.",
+        render=lambda p: f"Check my calendar for {q(p.date)}. Show me the next {p.count} events.",
         action="Checking your calendar",
     ),
     openclaw_tool(

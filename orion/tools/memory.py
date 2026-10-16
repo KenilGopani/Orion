@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from orion.core.models import ToolSafetyLevel
 from orion.core.registry import ToolDefinition
+from orion.tools._safe import Line
 
 logger = logging.getLogger("orion.tools.memory")
 
@@ -104,15 +105,15 @@ def _heuristic_extract(fact: str) -> tuple[str, str]:
 
 
 class RememberInput(BaseModel):
-    fact: str = Field(description='The information to remember, e.g. "My standup is at 10am every weekday".')
+    fact: Line = Field(description='The information to remember, e.g. "My standup is at 10am every weekday".')
 
 
 class RecallInput(BaseModel):
-    topic: str = Field(description='The topic to search memory for, e.g. "standup time".')
+    topic: Line = Field(description='The topic to search memory for, e.g. "standup time".')
 
 
 class ForgetInput(BaseModel):
-    topic: str = Field(description="The topic to forget.")
+    topic: Line = Field(description="The topic to forget.")
 
 
 async def _remember(payload: RememberInput) -> dict[str, str]:

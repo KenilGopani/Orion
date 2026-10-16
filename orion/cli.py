@@ -3,6 +3,7 @@
 
     orion up              API + MCP tools + scheduler + dashboard, plus the voice agent
     orion up --no-voice   everything except the voice agent
+    orion openclaw-config least-privilege OpenClaw agents + safety check
 """
 
 from __future__ import annotations
@@ -74,6 +75,20 @@ def _up(args: argparse.Namespace) -> int:
     return 0
 
 
+def _openclaw_config(args: argparse.Namespace) -> int:
+    from orion.openclaw_setup import OPENCLAW_CONFIG_PATH, check_openclaw_config, config_snippet
+
+    print(config_snippet())
+    warnings = check_openclaw_config(config)
+    if warnings:
+        print(f"// Checks against {OPENCLAW_CONFIG_PATH}:", file=sys.stderr)
+        for warning in warnings:
+            print(f"//  ⚠ {warning}", file=sys.stderr)
+    else:
+        print(f"// {OPENCLAW_CONFIG_PATH} looks safe for Orion.", file=sys.stderr)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(
         level=logging.INFO,
@@ -87,6 +102,12 @@ def main(argv: list[str] | None = None) -> int:
     up.add_argument("--port", type=int, default=config.port, help="port (default: ORION_PORT or 8000)")
     up.add_argument("--no-voice", action="store_true", help="don't start the voice agent")
     up.set_defaults(handler=_up)
+
+    oc = commands.add_parser(
+        "openclaw-config",
+        help="print least-privilege OpenClaw agent definitions and check the current config",
+    )
+    oc.set_defaults(handler=_openclaw_config)
 
     args = parser.parse_args(argv)
     return int(args.handler(args))
