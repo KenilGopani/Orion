@@ -89,6 +89,15 @@ class InMemoryTaskStore:
             approval.approved_at = utc_now()
             return approval
 
+    def reject_approval(self, approval_id: str, rejected_by: str) -> ApprovalRequest:
+        with self._lock:
+            approval = self._approvals_by_id.get(approval_id)
+            if not approval:
+                raise KeyError(f"Approval {approval_id} not found")
+            approval.approved_by = rejected_by
+            approval.rejected_at = utc_now()
+            return approval
+
     def _must_get_task(self, task_id: str) -> Task:
         task = self._tasks.get(task_id)
         if not task:

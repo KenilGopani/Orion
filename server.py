@@ -18,7 +18,7 @@ import logging
 from mcp.server.fastmcp import FastMCP
 from orion.tools import register_all_tools
 from orion.config import config
-from bridge import get_openclaw_client
+from bridge.openclaw_client import OpenClawClient
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -52,11 +52,19 @@ register_all_tools(mcp)
 # ---------------------------------------------------------------------------
 
 async def _startup_health_check() -> None:
-    """Log OpenClaw daemon status on server boot."""
-    client = get_openclaw_client()
-    healthy = await client.health_check()
+    """Log OpenClaw daemon status on server boot.
+
+    Uses its own short-lived client: this runs in a throwaway event loop before
+    the server's loop starts, and the shared client's pooled connections would
+    otherwise stay bound to this dead loop and fail the first real tool call.
+    """
+    client = OpenClawClient(base_url=config.openclaw_url, api_token=config.openclaw_token)
+    try:
+        healthy = await client.health_check()
+        skills = await client.list_skills() if healthy else []
+    finally:
+        await client.close()
     if healthy:
-        skills = await client.list_skills()
         logger.info("✓ OpenClaw daemon is ONLINE at %s", config.openclaw_url)
         if skills:
             logger.info("  Available agents/models: %s", ", ".join(skills))
@@ -82,7 +90,7 @@ def main():
     logger.info("Orion MCP Server starting on port %d…", config.mcp_server_port)
 
     # Run the health check before starting the server
-    asyncio.get_event_loop().run_until_complete(_startup_health_check())
+    asyncio.run(_startup_health_check())
 
     if config.enable_scheduler:
         original_run_sse_async = mcp.run_sse_async

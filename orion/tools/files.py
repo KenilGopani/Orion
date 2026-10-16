@@ -4,6 +4,7 @@ File tools — read, write, and search files via OpenClaw.
 
 from __future__ import annotations
 from bridge import get_openclaw_client
+from orion.tools._gated import run_gated
 
 
 def register(mcp):
@@ -30,18 +31,13 @@ def register(mcp):
             path: File path to write to.
             content: Content to write into the file.
         """
-        from orion.core.models import TaskStatus
-        from orion.core.runtime import run_runtime_write_file
-
-        task = await run_runtime_write_file(path=path, content=content)
-        if task.status == TaskStatus.AWAITING_APPROVAL:
-            return (
-                f"Writing to '{path}' requires your approval. "
-                "Please approve via the Orion API or say 'approve' to proceed."
-            )
-        if task.steps and task.steps[-1].tool_result:
-            return task.steps[-1].tool_result.output.get("message", "File written, sir.")
-        return "File written, sir."
+        return await run_gated(
+            "openclaw_write_file",
+            f"Write file: {path}",
+            f"Writing to '{path}'",
+            path=path,
+            content=content,
+        )
 
     @mcp.tool()
     async def search_files(query: str, directory: str = ".") -> str:

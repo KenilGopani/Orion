@@ -269,6 +269,18 @@ class PersistentTaskStore:
             session.commit()
             return _record_to_approval(rec)
 
+    def reject_approval(self, approval_id: str, rejected_by: str) -> ApprovalRequest:
+        # ``approved_by`` records who decided, whichever way they decided.
+        with get_session() as session:
+            rec = session.get(ApprovalRecord, approval_id)
+            if not rec:
+                raise KeyError(f"Approval {approval_id} not found")
+            rec.approved_by = rejected_by
+            rec.rejected_at = utc_now()
+            session.add(rec)
+            session.commit()
+            return _record_to_approval(rec)
+
     # ── Internal ──────────────────────────────────────────────────
 
     def _must_get_task(self, task_id: str) -> Task:

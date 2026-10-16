@@ -5,6 +5,7 @@ System tools — time, system info, shell commands via OpenClaw.
 from __future__ import annotations
 from datetime import datetime, timezone
 from bridge import get_openclaw_client
+from orion.tools._gated import run_gated
 
 
 def register(mcp):
@@ -38,15 +39,9 @@ def register(mcp):
         Args:
             command: The shell command to execute.
         """
-        from orion.core.models import TaskStatus
-        from orion.core.runtime import run_runtime_run_command
-
-        task = await run_runtime_run_command(command=command)
-        if task.status == TaskStatus.AWAITING_APPROVAL:
-            return (
-                f"Running '{command}' requires your approval. "
-                "Please approve via the Orion API or say 'approve' to proceed."
-            )
-        if task.steps and task.steps[-1].tool_result:
-            return task.steps[-1].tool_result.output.get("message", "Command executed, sir.")
-        return "Command executed, sir."
+        return await run_gated(
+            "openclaw_run_command",
+            f"Run command: {command[:80]}",
+            "The command",
+            command=command,
+        )
