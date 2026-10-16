@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from bridge import get_openclaw_client
 from orion.core.models import ToolSafetyLevel
 from orion.core.registry import ToolDefinition
+from orion.openclaw_setup import agent_for
 
 
 def openclaw_tool(
@@ -28,10 +29,17 @@ def openclaw_tool(
     action: str,
     describe: Callable[[Any], str] | None = None,
 ) -> ToolDefinition[Any]:
-    """Declare a tool whose handler sends ``render(payload)`` to OpenClaw."""
+    """Declare a tool whose handler sends ``render(payload)`` to OpenClaw.
+
+    The instruction goes to the least-privilege OpenClaw agent for the tool's
+    safety level when scoped agents are enabled.
+    """
 
     async def handler(payload: Any) -> dict[str, str]:
-        result = await get_openclaw_client().send_task(render(payload))
+        from orion.config import config
+
+        agent = agent_for(safety_level, config)
+        result = await get_openclaw_client().send_task(render(payload), agent=agent)
         if result["status"] != "success":
             raise RuntimeError(result["result"])
         return {"message": result["result"]}

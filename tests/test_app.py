@@ -19,14 +19,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 import uvicorn
-from fastapi.testclient import TestClient
 from mcp import ClientSession
 from mcp.client.sse import sse_client
 from starlette.routing import Mount
 
-from tests.conftest import reset_test_db
+from tests.conftest import AUTH, local_client, make_app, reset_test_db
 
-from orion.app import MCP_MOUNT_PATH, build_mcp, create_app
+from orion.app import MCP_MOUNT_PATH, build_mcp
 from orion.config import config
 from orion.core.engine import ExecutionEngine
 from orion.core.runtime import build_runtime
@@ -41,27 +40,27 @@ class SingleProcessAppTests(unittest.TestCase):
 
     def test_exactly_one_engine_per_app(self) -> None:
         with patch.object(ExecutionEngine, "__init__", autospec=True, wraps=ExecutionEngine.__init__) as init:
-            app = create_app(self.cfg, check_openclaw=False)
-            with TestClient(app) as client:
+            app = make_app(self.cfg)
+            with local_client(app) as client:
                 client.get("/api/health")
         self.assertEqual(init.call_count, 1)
 
     def test_api_and_tools_share_the_runtime(self) -> None:
-        app = create_app(self.cfg, check_openclaw=False)
-        with TestClient(app) as client:
-            created = client.post("/api/tasks", json={"user_intent": "echo hello"}).json()
+        app = make_app(self.cfg)
+        with local_client(app) as client:
+            created = client.post("/api/tasks", json={"user_intent": "echo hello"}, headers=AUTH).json()
             # The task the API created is visible through the same runtime the tools use.
             self.assertIsNotNone(app.state.runtime.store.get_task(created["id"]))
             listed = client.get("/api/tasks").json()
         self.assertIn(created["id"], [t["id"] for t in listed])
 
     def test_mcp_is_mounted_on_the_same_app(self) -> None:
-        app = create_app(self.cfg, check_openclaw=False)
+        app = make_app(self.cfg)
         mounts = [r.path for r in app.routes if isinstance(r, Mount)]
         self.assertIn(MCP_MOUNT_PATH, mounts)
 
     def test_root_serves_the_dashboard_or_a_hint(self) -> None:
-        with TestClient(create_app(self.cfg, check_openclaw=False)) as client:
+        with local_client(make_app(self.cfg)) as client:
             response = client.get("/")
         self.assertEqual(response.status_code, 200)
         self.assertIn("text/html", response.headers["content-type"])
@@ -83,7 +82,7 @@ class McpOverSseTests(unittest.IsolatedAsyncioTestCase):
         with socket.socket() as sock:
             sock.bind(("127.0.0.1", 0))
             self.port = sock.getsockname()[1]
-        app = create_app(replace(config, enable_scheduler=False), check_openclaw=False)
+        app = make_app(replace(config, enable_scheduler=False))
         self.server = uvicorn.Server(
             uvicorn.Config(app, host="127.0.0.1", port=self.port, log_level="warning", ws="none")
         )

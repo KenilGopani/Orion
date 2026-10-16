@@ -15,6 +15,9 @@ tool carries a safety level, and anything irreversible — sending a message,
 overwriting a file, running a shell command — halts and waits for a human before
 it executes. Every decision is written to an append-only event log.
 
+> 🔒 **Security model:** [SECURITY.md](SECURITY.md) covers the threat model, what
+> Orion mitigates (prompt injection, CSRF, DNS rebinding) and what it can't.
+>
 > 📖 **New to the codebase?** Read **[ARCHITECTURE.md](ARCHITECTURE.md)** — a full
 > walkthrough of the request flows, the approval gate, every service and how they
 > interact, plus a candid list of known rough edges.
@@ -124,6 +127,11 @@ openclaw gateway status
 Start the OpenClaw gateway (skip this if it runs as a service):
 ```bash
 openclaw gateway --port 18789
+```
+
+Recommended: give Orion least-privilege OpenClaw agents, so read-only tools can never exec or write (see [SECURITY.md](SECURITY.md#setting-up-least-privilege-openclaw-agents)):
+```bash
+uv run orion openclaw-config   # prints the agent definitions and checks your OpenClaw config
 ```
 
 Then start Orion with one command:

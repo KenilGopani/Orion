@@ -11,20 +11,21 @@ from pydantic import BaseModel, Field
 from orion.core.models import ToolSafetyLevel
 from orion.core.registry import ToolDefinition
 from orion.tools._openclaw import openclaw_tool
+from orion.tools._safe import Line, q
 
 
 class ReadFileInput(BaseModel):
-    path: str = Field(description="Absolute or relative file path.")
+    path: Line = Field(description="Absolute or relative file path.")
 
 
 class WriteFileInput(BaseModel):
-    path: str = Field(description="File path to write to.")
+    path: Line = Field(description="File path to write to.")
     content: str = Field(description="Content to write into the file.")
 
 
 class SearchFilesInput(BaseModel):
-    query: str = Field(description="Filename, extension or content pattern to search for.")
-    directory: str = Field(".", description="Directory to search in.")
+    query: Line = Field(description="Filename, extension or content pattern to search for.")
+    directory: Line = Field(".", description="Directory to search in.")
 
 
 TOOLS: list[ToolDefinition[Any]] = [
@@ -34,7 +35,7 @@ TOOLS: list[ToolDefinition[Any]] = [
         input_model=ReadFileInput,
         safety_level=ToolSafetyLevel.READ_ONLY,
         render=lambda p: (
-            f"Read the contents of the file at '{p.path}' and return a summary of what's in it."
+            f"Read the contents of the file at {q(p.path)} and return a summary of what's in it."
         ),
         action="Reading the file",
     ),
@@ -46,7 +47,7 @@ TOOLS: list[ToolDefinition[Any]] = [
         ),
         input_model=WriteFileInput,
         safety_level=ToolSafetyLevel.DESTRUCTIVE,
-        render=lambda p: f"Write the following content to the file at '{p.path}':\n{p.content}",
+        render=lambda p: f"Write the content {q(p.content)} to the file at {q(p.path)}.",
         action="Writing the file",
         describe=lambda p: f"Write file: {p.path}",
     ),
@@ -56,7 +57,7 @@ TOOLS: list[ToolDefinition[Any]] = [
         input_model=SearchFilesInput,
         safety_level=ToolSafetyLevel.READ_ONLY,
         render=lambda p: (
-            f"Search for files matching '{p.query}' in the directory '{p.directory}'. "
+            f"Search for files matching {q(p.query)} in the directory {q(p.directory)}. "
             "List what you find."
         ),
         action="The file search",

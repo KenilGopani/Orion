@@ -151,7 +151,8 @@ Orion/
 │
 ├── orion/
 │   ├── app.py             The one ASGI app: /api, /mcp, dashboard, lifespan
-│   ├── cli.py             `orion up` — runs the app, supervises voice
+│   ├── cli.py             `orion up`, `orion openclaw-config`
+│   ├── openclaw_setup.py  Least-privilege OpenClaw agents + startup checks
 │   ├── config.py          All env vars, typed; validate() on startup
 │   ├── persona.py         Loads system prompt + injects memories
 │   ├── prompts/           Orion's character prompt
@@ -177,13 +178,14 @@ Orion/
 │   │   └── event_store.py PersistentEventStore
 │   │
 │   ├── tools/             24 tool declarations, 8 domains; _mcp.py generates
-│   │                      the voice LLM's MCP surface from the registry
+│   │                      the voice LLM's MCP surface from the registry;
+│   │                      _safe.py: single-line args, quoting, URL schemes
 │   ├── services/          memory · conversation · scheduler
-│   └── api/               FastAPI routes for the dashboard
+│   └── api/               FastAPI routes; security.py: install token, Host check
 │
 ├── dashboard/             Vite + React + TS operator UI
 ├── dev/                   Mock OpenClaw · text agent · DB seeder
-└── tests/                 57 tests
+└── tests/                 83 tests
 ```
 
 ---
@@ -561,6 +563,12 @@ exists in `api/orion.ts` but the components currently poll.
 **The dashboard is the approval UI.** Without it (or a raw `POST
 /api/tasks/{id}/approve`), gated tasks sit in `AWAITING_APPROVAL` forever.
 
+State-changing API routes (create, approve, reject) require the per-install
+token in the `X-Orion-Token` header; the dashboard fetches it once from
+`/api/auth/token`. Every request must also carry a loopback `Host` header. Both
+defend against other websites in your browser (CSRF, DNS rebinding); see
+[SECURITY.md](SECURITY.md).
+
 ---
 
 ## 11. Development environment
@@ -582,7 +590,7 @@ make dev      # text agent against mock OpenClaw
 demands credentials.
 
 ```bash
-make test     # 57 tests
+make test     # 83 tests
 make lint     # ruff + mypy, both clean
 ```
 
@@ -644,13 +652,16 @@ you broke them.
     (`tests/test_tool_surface.py`). Most API routes and the task SSE stream are
     not.
 
-11. **The gate only governs what Orion *asks* for.** Every tool, including
-    "read-only" ones like `search_web`, sends a natural-language instruction to
-    OpenClaw — an agent with full system access. An LLM-chosen query string such
-    as "…and then delete ~/Documents" would be executed by OpenClaw without any
-    approval. Safety levels are only real if the executor itself is restricted
-    per call (e.g. OpenClaw skill allow-lists, or calling typed skill APIs
-    instead of free text).
+11. ⚠️ **Partly resolved (#17).** The gate only governs what Orion *asks* for:
+    every tool sends a natural-language instruction to OpenClaw, an agent with
+    broad access. OpenClaw can't restrict tools per request, so Orion now
+    (a) rejects multi-line and over-long text in single-line arguments,
+    (b) sends every value as a quoted literal that OpenClaw is told is data, and
+    (c) with `ORION_OPENCLAW_SCOPED_AGENTS=true`, runs each call on a
+    least-privilege OpenClaw agent for its safety level (`orion-reader` can't
+    exec or write). What remains: scoping depends on the user configuring those
+    agents, and a malicious OpenClaw skill is out of Orion's reach. See
+    [SECURITY.md](SECURITY.md).
 
 ---
 

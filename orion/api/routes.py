@@ -3,10 +3,11 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from orion.api.security import require_token
 from orion.core.models import TaskStatus
 from orion.services.scheduler import describe_jobs
 
@@ -26,13 +27,26 @@ class RejectTaskRequest(BaseModel):
     rejected_by: str = "human_operator"
 
 
-def build_routes(runtime: Runtime) -> APIRouter:
+def build_routes(runtime: Runtime, api_token: str) -> APIRouter:
     router = APIRouter()
     engine, store, events = runtime.engine, runtime.store, runtime.events
+    # Every route that changes state requires the install token (see security.py).
+    authorized = [Depends(require_token(api_token))]
+
+    # ── Auth ──────────────────────────────────────────────────────
+
+    @router.get("/auth/token")
+    def get_token():
+        """Hand the install token to the dashboard.
+
+        Safe to expose because only loopback Host headers reach this app and
+        cross-origin pages can't read the response (no CORS grant).
+        """
+        return {"token": api_token}
 
     # ── Tasks ─────────────────────────────────────────────────────
 
-    @router.post("/tasks")
+    @router.post("/tasks", dependencies=authorized)
     async def create_task(request: CreateTaskRequest):
         return await engine.create_task(request.user_intent)
 
@@ -49,7 +63,7 @@ def build_routes(runtime: Runtime) -> APIRouter:
 
     # ── Approvals ─────────────────────────────────────────────────
 
-    @router.post("/tasks/{task_id}/approve")
+    @router.post("/tasks/{task_id}/approve", dependencies=authorized)
     async def approve_task(task_id: str, request: ApproveTaskRequest):
         try:
             return await engine.resume_task_after_approval(task_id, request.approved_by)
@@ -58,7 +72,7 @@ def build_routes(runtime: Runtime) -> APIRouter:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    @router.post("/tasks/{task_id}/reject")
+    @router.post("/tasks/{task_id}/reject", dependencies=authorized)
     async def reject_task(task_id: str, request: RejectTaskRequest | None = None):
         """Reject a pending approval — the step is skipped and the task FAILS."""
         rejected_by = request.rejected_by if request else "human_operator"

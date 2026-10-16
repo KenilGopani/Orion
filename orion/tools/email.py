@@ -4,24 +4,25 @@ Email tools â€” executed by OpenClaw's installed email skills (Gmail, Outlook, â
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 from orion.core.models import ToolSafetyLevel
 from orion.core.registry import ToolDefinition
 from orion.tools._openclaw import openclaw_tool
+from orion.tools._safe import Line, q
 
 
 class CheckEmailInput(BaseModel):
     count: int = Field(10, description="Number of emails to retrieve.")
-    filter: str = Field("unread", description='Filter: "unread", "all", "starred" or "important".')
+    filter: Literal["unread", "all", "starred", "important"] = Field("unread", description="Which emails to check.")
     summarize: bool = Field(True, description="Summarise what's urgent; otherwise list subjects.")
 
 
 class SendEmailInput(BaseModel):
-    to: str = Field(description="Recipient email address or name.")
-    subject: str = Field(description="Email subject line.")
+    to: Line = Field(description="Recipient email address or name.")
+    subject: Line = Field(description="Email subject line.")
     body: str = Field(description="Email body content.")
 
 
@@ -50,7 +51,7 @@ TOOLS: list[ToolDefinition[Any]] = [
         description="Send an email to someone. Requires approval before execution.",
         input_model=SendEmailInput,
         safety_level=ToolSafetyLevel.EXTERNAL_SIDE_EFFECT,
-        render=lambda p: f"Send an email to {p.to} with subject '{p.subject}' and body: {p.body}",
+        render=lambda p: f"Send an email to {q(p.to)} with subject {q(p.subject)} and body {q(p.body)}.",
         action="The email",
         describe=lambda p: f"Send email to {p.to}: {p.subject}",
     ),

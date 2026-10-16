@@ -90,6 +90,11 @@ class Config:
     openclaw_token: str = field(
         default_factory=lambda: os.getenv("OPENCLAW_GATEWAY_TOKEN", "")
     )
+    # Route each tool to a least-privilege OpenClaw agent by safety level
+    # (orion-reader / orion-actor / orion-exec). See orion/openclaw_setup.py.
+    openclaw_scoped_agents: bool = field(
+        default_factory=lambda: _env_bool("ORION_OPENCLAW_SCOPED_AGENTS")
+    )
 
     # ── Persona ───────────────────────────────────────────────────
     user_name: str = field(default_factory=lambda: os.getenv("ORION_USER_NAME", "sir"))
@@ -100,6 +105,13 @@ class Config:
     # MCP_SERVER_PORT is still honoured for .env files that predate ORION_PORT.
     port: int = field(
         default_factory=lambda: int(os.getenv("ORION_PORT") or os.getenv("MCP_SERVER_PORT") or "8000")
+    )
+    # Extra Host names the app answers to, besides loopback (comma-separated).
+    # Only needed when serving Orion under another name, e.g. a reverse proxy.
+    allowed_hosts: list[str] = field(
+        default_factory=lambda: [
+            h.strip() for h in os.getenv("ORION_ALLOWED_HOSTS", "").split(",") if h.strip()
+        ]
     )
 
     # ── Validation ────────────────────────────────────────────────

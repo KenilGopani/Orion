@@ -46,9 +46,14 @@ def _signature(model: type[BaseModel]) -> inspect.Signature:
     """
     params = []
     for name, field in model.model_fields.items():
+        # Keep constraints (length, pattern, validators) so the LLM's schema and
+        # MCP-side validation match the input model exactly.
         annotation: Any = field.annotation
+        extras: list[Any] = list(field.metadata)
         if field.description:
-            annotation = Annotated[annotation, Field(description=field.description)]
+            extras.append(Field(description=field.description))
+        if extras:
+            annotation = Annotated[(annotation, *extras)]
         default = inspect.Parameter.empty if field.is_required() else field.default
         params.append(
             inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY, default=default, annotation=annotation)

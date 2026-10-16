@@ -34,3 +34,26 @@ def reset_test_db() -> None:
     """Drop and recreate all tables — gives each test a clean slate."""
     SQLModel.metadata.drop_all(_test_engine)
     SQLModel.metadata.create_all(_test_engine)
+
+
+# ── App helpers ───────────────────────────────────────────────────────────────
+
+#: Install token used by test apps, so tests never read or write ~/.orion/api-token.
+TEST_TOKEN = "test-token"
+AUTH = {"X-Orion-Token": TEST_TOKEN}
+
+
+def make_app(cfg=None, **kwargs):
+    """An Orion app for tests: no OpenClaw probe, a fixed install token."""
+    from orion.app import create_app
+
+    kwargs.setdefault("check_openclaw", False)
+    kwargs.setdefault("api_token", TEST_TOKEN)
+    return create_app(cfg, **kwargs)
+
+
+def local_client(app):
+    """A TestClient that sends a loopback Host header, as a real browser would."""
+    from fastapi.testclient import TestClient
+
+    return TestClient(app, base_url="http://127.0.0.1:8000")
