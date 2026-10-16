@@ -123,8 +123,10 @@ PROVIDERS: dict[str, ProviderSpec] = {
     "ollama": ProviderSpec(
         name="ollama",
         transport=Transport.OPENAI_COMPAT,
-        # Free and fully local. Pull with: ollama pull qwen2.5:7b
-        model="qwen2.5:7b",
+        # Free and fully local. qwen3.5:4b (3.3 GB, tool calling) leaves room for
+        # local STT/TTS and OpenClaw on a 16 GB Mac; with 24 GB+ prefer
+        # ORION_LLM_MODEL=qwen3.5:9b. Pull with: ollama pull qwen3.5:4b
+        model="qwen3.5:4b",
         base_url=os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/v1"),
         api_key_env=None,
         livekit_plugin="openai",

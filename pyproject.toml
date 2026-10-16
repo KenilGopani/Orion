@@ -21,6 +21,13 @@ dependencies = [
     "anthropic>=0.122.0",
     "livekit-plugins-anthropic>=1.6",
     "json5>=0.17.3",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+# Local Parakeet speech-to-text (`orion parakeet-server`); MLX needs Apple Silicon.
+parakeet = [
+    "parakeet-mlx>=0.5.3; sys_platform == 'darwin' and platform_machine == 'arm64'",
 ]
 
 [project.scripts]
@@ -37,6 +44,11 @@ python_version = "3.12"
 # apscheduler ships no type stubs or py.typed marker.
 [[tool.mypy.overrides]]
 module = ["apscheduler.*"]
+ignore_missing_imports = true
+
+# Optional Apple Silicon extra: untyped, and absent on Linux CI.
+[[tool.mypy.overrides]]
+module = ["parakeet_mlx.*", "mlx.*"]
 ignore_missing_imports = true
 
 [tool.hatch.build.targets.wheel]

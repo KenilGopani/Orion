@@ -244,7 +244,8 @@ TOOLS = [
 
 | Provider | Env Var | Model | Notes |
 |----------|---------|-------|-------|
-| **whisper_local** (default) | *none* | whisper-large-v3-turbo | **Free**, fully local, no API key |
+| **whisper_local** (default) | *none* | whisper-large-v3-turbo | **Free**, fully local, ~100 languages |
+| **parakeet_local** | *none* | parakeet-tdt-0.6b-v3 | **Free**, fully local, faster and more accurate English; ~25 European languages (Apple Silicon) |
 | Groq | `GROQ_API_KEY` | whisper-large-v3 | Free tier, fast |
 | OpenAI Whisper | `OPENAI_API_KEY` | whisper-1 | Reliable, paid |
 | Sarvam | `SARVAM_API_KEY` | saaras:v3 | Good for Indian accents |
@@ -258,7 +259,7 @@ TOOLS = [
 | OpenAI | `chatgpt` | `OPENAI_API_KEY` | gpt-4o | Best general quality |
 | Claude | `anthropic` | `ANTHROPIC_API_KEY` | claude-sonnet-5 | Strongest tool use |
 | Groq | — | `GROQ_API_KEY` | llama-3.3-70b | Free tier, fastest |
-| Ollama | `local` | *none* | qwen2.5:7b | **Free**, fully local |
+| Ollama | `local` | *none* | qwen3.5:4b | **Free**, fully local (`qwen3.5:9b` with 24 GB+) |
 
 Switching is one env var:
 
@@ -288,10 +289,10 @@ return a 400.
 **For a fully free stack**, install [Ollama](https://ollama.com) and pull a model:
 
 ```bash
-ollama pull qwen2.5:7b
+ollama pull qwen3.5:4b      # 3.3 GB, tool calling; or qwen3.5:9b (6.6 GB) with 24 GB+ RAM
 ```
 
-Then set `LLM_PROVIDER=ollama`. Combined with `whisper_local` and `kokoro`, Orion
+Then set `LLM_PROVIDER=ollama` (and `ORION_LLM_MODEL=qwen3.5:9b` for the larger model). Combined with `whisper_local` and `kokoro`, Orion
 runs with **zero API keys** apart from LiveKit transport.
 
 ### TTS (Text-to-Speech)
@@ -299,6 +300,7 @@ runs with **zero API keys** apart from LiveKit transport.
 | Provider | Env Var | Voice | Notes |
 |----------|---------|-------|-------|
 | **kokoro** (default) | *none* | am_michael | **Free**, fully local, no API key |
+| **mlx_audio** | *none* | af_heart (Kokoro) | **Free**, local on Apple Silicon; also Qwen3-TTS |
 | ElevenLabs | `ELEVEN_API_KEY` | Adam (British) | Best quality, 10k chars/mo free |
 | OpenAI | `OPENAI_API_KEY` | onyx | Good, composable |
 | Sarvam | `SARVAM_API_KEY` | rahul | Indian English |
@@ -312,9 +314,9 @@ TTS_PROVIDER=kokoro
 
 ### Running the free local speech stack
 
-The two local providers are OpenAI-compatible HTTP servers you run yourself, so
-they need **no extra Python dependencies** — the existing `openai` plugin just
-points at `localhost`.
+The local providers are OpenAI-compatible HTTP servers you run yourself, so the
+voice agent needs **no extra Python dependencies**: the existing `openai`
+plugin just points at `localhost`.
 
 **Whisper STT** — [whisper.cpp](https://github.com/ggml-org/whisper.cpp) is
 Metal-accelerated on Apple Silicon:
@@ -329,13 +331,48 @@ whisper-server -m models/ggml-large-v3-turbo.bin --port 8080
 docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpu
 ```
 
-Neither model streams, but LiveKit handles that automatically: it segments mic
+**Parakeet STT** (Apple Silicon): Orion ships the server, since `parakeet-mlx`
+has none. No ffmpeg needed: Orion decodes LiveKit's WAV audio itself.
+
+```bash
+uv sync --extra parakeet
+uv run orion parakeet-server          # port 8090; the first run downloads the model (~2.5 GB)
+# then in .env: STT_PROVIDER=parakeet_local
+```
+
+Parakeet v3 covers English and ~25 European languages. For other languages
+(e.g. Hindi), keep `whisper_local`.
+
+**mlx-audio TTS** (Apple Silicon), [mlx-audio](https://github.com/Blaizzy/mlx-audio):
+
+```bash
+uv tool install "mlx-audio[server,tts]" --with misaki
+mlx_audio.server --host 127.0.0.1 --port 8881
+# then in .env: TTS_PROVIDER=mlx_audio  (MLX_AUDIO_MODEL / MLX_AUDIO_VOICE to change)
+```
+
+None of these models streams, but LiveKit handles that automatically: it segments mic
 audio with Silero VAD before calling Whisper, and wraps Kokoro in a
 `tts.StreamAdapter` with a sentence tokenizer so playback starts after the first
 sentence rather than the full response.
 
 > **Note:** local STT/TTS removes the OpenAI/Groq/ElevenLabs keys, but LiveKit
 > Cloud credentials are still required for voice transport.
+
+**Will it fit?** Approximate memory on a 16 GB Apple Silicon Mac, with
+everything local:
+
+| Component | Model | Memory |
+|---|---|---|
+| LLM (Ollama) | `qwen3.5:4b` | ~3.3 GB + context |
+| STT | Parakeet TDT 0.6B v3, or Whisper large-v3-turbo | ~2.5 GB, or ~1.6 GB |
+| TTS | Kokoro 82M | ~0.4 GB |
+| Orion + voice agent | | ~1 GB |
+| OpenClaw gateway | (point it at the same Ollama model, or a free cloud one) | ~0.5 GB |
+| **Total** | | **~8 GB**, leaving room for macOS and your apps |
+
+`qwen3.5:9b` adds ~3.3 GB, so it's best with 24 GB or more. Run one local LLM
+and share it with OpenClaw; two models won't fit in 16 GB.
 
 ---
 

@@ -120,7 +120,9 @@ Optional free local model servers (see §8, §9):
 | Server | Port | Used when |
 |---|---|---|
 | whisper.cpp | 8080 | `STT_PROVIDER=whisper_local` |
+| `orion parakeet-server` | 8090 | `STT_PROVIDER=parakeet_local` (Apple Silicon) |
 | kokoro-fastapi | 8880 | `TTS_PROVIDER=kokoro` |
+| mlx-audio | 8881 | `TTS_PROVIDER=mlx_audio` (Apple Silicon) |
 | Ollama | 11434 | `LLM_PROVIDER=ollama` |
 
 ### One runtime per process
@@ -538,17 +540,36 @@ differences the registry encodes:
 
 Providers are selected by string in `agent.py`'s `_build_stt()` / `_build_tts()`.
 
-**STT:** `whisper_local` (free, local) · `groq` · `whisper` · `sarvam` ·
-`deepgram`
-**TTS:** `kokoro` (free, local) · `elevenlabs` · `openai` · `sarvam`
+**STT:** `whisper_local` (free, local) · `parakeet_local` (free, local) ·
+`groq` · `whisper` · `sarvam` · `deepgram`
+**TTS:** `kokoro` (free, local) · `mlx_audio` (free, local) · `elevenlabs` ·
+`openai` · `sarvam`
 
-Both local options are **OpenAI-compatible HTTP servers you run yourself**, so
-they need no extra Python dependencies — the existing `openai` plugin just
-points at localhost.
+All local options are **OpenAI-compatible HTTP servers you run yourself**, so
+the voice agent needs no extra Python dependencies; the existing `openai`
+plugin just points at localhost.
+
+### Parakeet: Orion's own STT server
+
+`parakeet-mlx` has no HTTP server, so `orion/speech/parakeet_server.py` wraps
+it in the one endpoint LiveKit's STT plugin calls (`POST
+/v1/audio/transcriptions`, multipart). The transcriber is injected, so the
+request/response contract is tested in CI without MLX. LiveKit always sends
+16-bit PCM WAV, which `decode_wav()` decodes and resamples with numpy, so the
+model gets samples directly and **ffmpeg isn't needed**; other formats fall
+back to parakeet-mlx's own (ffmpeg-based) loader. It's an optional extra
+(`uv sync --extra parakeet`), installed only on Apple Silicon.
+
+Parakeet v3 is faster than Whisper and more accurate for English, but covers
+only English and ~25 European languages; `whisper_local` remains the default
+for its ~100.
+
+`mlx_audio` requests WAV from the server because mlx-audio needs ffmpeg for
+the plugin's default MP3.
 
 ### Non-streaming is handled for you
 
-Whisper and Kokoro are batch models. LiveKit 1.6.0 auto-wraps them:
+Whisper, Parakeet and Kokoro are batch models. LiveKit 1.6.0 auto-wraps them:
 
 - non-streaming **STT** → `stt.StreamAdapter(stt, vad)` — VAD segments the audio
 - non-streaming **TTS** → `tts.StreamAdapter(tts, sentence_tokenizer)` —
@@ -558,7 +579,9 @@ Whisper and Kokoro are batch models. LiveKit 1.6.0 auto-wraps them:
 Sarvam's streaming STT up to 0.3s for batch Whisper).
 
 **A fully free stack** is `LLM_PROVIDER=ollama` + `STT_PROVIDER=whisper_local`
-+ `TTS_PROVIDER=kokoro` — validates with zero API keys, LiveKit transport aside.
+(or `parakeet_local`) + `TTS_PROVIDER=kokoro` (or `mlx_audio`). It validates with
+zero API keys, LiveKit transport aside. The README has a memory budget for a
+16 GB Mac.
 
 ---
 
