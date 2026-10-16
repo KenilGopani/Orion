@@ -103,34 +103,38 @@ ci(github): add GitHub Actions workflow for pytest and ruff
 
 ## How to Add a New Tool
 
-1. **Create a tool module** in `orion/tools/` (e.g., `music.py`):
+Every tool is **one declaration**. The voice tool (MCP), the planner's tool list and the approval gate are all generated from it; there's nothing else to wire up.
+
+1. **Declare the tool** in `orion/tools/` (a new module, or the one for its domain):
 
 ```python
-from bridge import get_openclaw_client
+# orion/tools/music.py
+from pydantic import BaseModel, Field
 
-def register(mcp, runtime):
-    @mcp.tool()
-    async def play_music(song: str, artist: str = "") -> str:
-        """Play a song."""
-        task = f"Play '{song}'"
-        if artist:
-            task += f" by {artist}"
-        result = await get_openclaw_client().send_task(task)
-        return result["result"]
+from orion.core.models import ToolSafetyLevel
+from orion.tools._openclaw import openclaw_tool
+
+
+class PlayMusicInput(BaseModel):
+    song: str = Field(description="Song title.")
+    artist: str = Field("", description="Artist (optional).")
+
+
+TOOLS = [
+    openclaw_tool(
+        name="play_music",
+        description="Play a song.",
+        input_model=PlayMusicInput,
+        safety_level=ToolSafetyLevel.LOW_RISK,
+        render=lambda p: f"Play '{p.song}'" + (f" by {p.artist}" if p.artist else ""),
+        action="Playing the song",
+    ),
+]
 ```
 
-`runtime` is the app's shared `Runtime`. A tool with side effects must call
-`run_gated(runtime, ...)` from `orion/tools/_gated.py` instead of OpenClaw directly.
+   Choose the safety level deliberately: `EXTERNAL_SIDE_EFFECT` or `DESTRUCTIVE` makes every call wait for human approval. For a tool that doesn't use OpenClaw, build a `ToolDefinition` with your own handler (see `get_time` in `orion/tools/system.py`).
 
-2. **Register it** in `orion/tools/__init__.py`:
-
-```python
-from orion.tools import music  # add import
-
-def register_all_tools(mcp, runtime):
-    for module in (email, messaging, ..., music):  # add your module here
-        module.register(mcp, runtime)
-```
+2. **Register a new module** in `all_tools()` in `orion/tools/__init__.py`, and **add the tool to `EXPECTED_SAFETY`** in `tests/test_tool_surface.py` (the test fails until you do).
 
 3. **Add mock responses** in `dev/mock_openclaw.py` for your new tool.
 
@@ -140,7 +144,7 @@ def register_all_tools(mcp, runtime):
 
 ## What NOT to Do
 
-- **Don't call OpenClaw directly for side-effectful tools** — route through the approval gate in `orion/core/runtime.py`
+- **Don't add MCP tools by hand** — declare a `ToolDefinition` in `orion/tools/`; the MCP surface is generated from the registry so every call goes through the approval gate
 - **Don't store secrets in code** — use environment variables via `orion/config.py`
 - **Don't break `dev/mock_openclaw.py` compatibility** — new tools should have mock responses
 - **Don't merge to `main` without tests passing** — run `make test` first

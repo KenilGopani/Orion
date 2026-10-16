@@ -68,25 +68,25 @@ from the file layout.
 |---|---|---|
 | Lives in | the LiveKit voice pipeline | `orion/core/planner.py` |
 | Decides by | native function-calling over MCP tools | asking an LLM for a JSON plan |
-| Triggered by | the user speaking | `POST /tasks`, scheduler jobs, dev CLI |
+| Triggered by | the user speaking | `POST /api/tasks`, scheduler jobs, dev CLI |
 | Produces | one tool call at a time | a multi-step `TaskPlan` |
 
 They never run in the same request. Voice input uses Brain A; dashboard and
-scheduled input use Brain B. Both ultimately funnel into the same
-`ExecutionEngine` and therefore the same approval gate.
+scheduled input use Brain B. Both choose from the **same tool registry** and
+funnel every call into the same `ExecutionEngine`, and therefore the same
+approval gate.
 
 ```mermaid
 flowchart TD
     V["🎤 Voice input"] --> A["Brain A<br/>voice LLM · function calling"]
-    D["🖥️ Dashboard POST /tasks"] --> B["Brain B<br/>LLMPlanner · JSON plan"]
+    D["🖥️ Dashboard POST /api/tasks"] --> B["Brain B<br/>LLMPlanner · JSON plan"]
     S["⏰ Scheduler job"] --> B
 
-    A -->|read-only tools| OC["OpenClaw daemon"]
-    A -->|side-effect tools| E["ExecutionEngine"]
+    A -->|every tool call| E["ExecutionEngine"]
     B --> E
 
     E --> G{"Approval gate<br/>safety level?"}
-    G -->|READ_ONLY / LOW_RISK| OC
+    G -->|READ_ONLY / LOW_RISK| OC["OpenClaw daemon"]
     G -->|EXTERNAL_SIDE_EFFECT<br/>DESTRUCTIVE| W["⏸ AWAITING_APPROVAL"]
     W -->|human approves| OC
 
@@ -128,7 +128,7 @@ Optional free local model servers (see §8, §9):
 Nothing in Orion does work at import time. `create_app()` in `orion/app.py`
 calls `build_runtime(config)` **once**, which constructs `store`, `events`,
 `registry`, `approval_gate`, `planner` and `engine`, and passes that `Runtime`
-to the API routes and to every MCP tool module (`register(mcp, runtime)`). The
+to the API routes and to the generated MCP tools (`expose_tools(mcp, runtime)`). The
 app's lifespan creates the database (`init_db()`) and starts and stops the
 scheduler.
 
@@ -162,7 +162,7 @@ Orion/
 │   │   ├── approvals.py   ApprovalGate + ApprovalStore protocol
 │   │   ├── registry.py    ToolDefinition[T] + ToolRegistry
 │   │   ├── planner.py     LLMPlanner (Brain B)
-│   │   ├── runtime.py     build_runtime(); declares gated tools
+│   │   ├── runtime.py     build_runtime(), build_registry()
 │   │   ├── store.py       InMemoryTaskStore (reference impl)
 │   │   └── events.py      EventRecorder (in-memory)
 │   │
@@ -176,13 +176,14 @@ Orion/
 │   │   ├── task_store.py  PersistentTaskStore
 │   │   └── event_store.py PersistentEventStore
 │   │
-│   ├── tools/             24 MCP tools, 8 domains × 3
+│   ├── tools/             24 tool declarations, 8 domains; _mcp.py generates
+│   │                      the voice LLM's MCP surface from the registry
 │   ├── services/          memory · conversation · scheduler
 │   └── api/               FastAPI routes for the dashboard
 │
 ├── dashboard/             Vite + React + TS operator UI
 ├── dev/                   Mock OpenClaw · text agent · DB seeder
-└── tests/                 51 tests
+└── tests/                 57 tests
 ```
 
 ---
@@ -199,16 +200,20 @@ This section traces every way work enters the system.
 sequenceDiagram
     participant U as User
     participant LK as Voice agent
-    participant MCP as MCP server
+    participant MCP as /mcp (generated tools)
+    participant E as ExecutionEngine
     participant OC as OpenClaw
     U->>LK: speech
     LK->>LK: Silero VAD segments utterance
     LK->>LK: STT → text
     LK->>LK: LLM picks tool check_email
     LK->>MCP: call check_email(count=10, filter="unread")
-    MCP->>OC: POST /v1/chat/completions<br/>"Check my unread emails…"
-    OC-->>MCP: raw markdown result
-    MCP->>MCP: clean_for_tts() strips markdown/JSON
+    MCP->>E: Runtime.run_tool("check_email", …)
+    E->>E: task + events · READ_ONLY passes the gate
+    E->>OC: POST /v1/chat/completions<br/>"Check my unread emails…"
+    OC-->>E: raw markdown result
+    E->>E: clean_for_tts() strips markdown/JSON
+    E-->>MCP: Task(SUCCEEDED)
     MCP-->>LK: plain string
     LK->>LK: TTS (sentence-chunked)
     LK-->>U: speech
@@ -220,19 +225,21 @@ Step by step:
    so LiveKit uses VAD to slice a complete utterance before transcribing.
 2. **STT.** `_build_stt()` in `agent.py` returns the configured provider.
 3. **LLM.** The voice LLM has the 24 MCP tools in its context and picks one.
-4. **MCP call.** The tool function in `orion/tools/email.py` runs.
-5. **Direct to OpenClaw.** Read-only tools call
-   `get_openclaw_client().send_task()` and **bypass the engine entirely** — no
-   task record, no event log, no approval.
+4. **MCP call.** The MCP tool was generated from the `check_email`
+   declaration in `orion/tools/email.py`; it calls `Runtime.run_tool()`.
+5. **Through the engine.** The engine records a task and its events. The tool
+   is `READ_ONLY`, so the gate lets it straight through and its handler sends
+   the instruction to OpenClaw. Nothing pauses, but the call is audited.
 6. **Cleaning.** `clean_for_tts()` removes markdown, code blocks, URLs, JSON, and
    truncates to 800 characters at a sentence boundary.
 7. **TTS.** Non-streaming engines are auto-wrapped by LiveKit in a
    `tts.StreamAdapter` with a sentence tokenizer, so audio starts after the
    first sentence.
 
-**Tools on this path:** `check_email`, `summarize_inbox`, `get_events`,
-`search_web`, `open_url`, `take_screenshot`, `read_file`, `search_files`,
-`get_time`, `get_system_info`, `create_project`, `open_editor`.
+**Tools on this path** (`READ_ONLY` / `LOW_RISK`): `check_email`,
+`summarize_inbox`, `get_events`, `read_file`, `search_files`, `search_web`,
+`take_screenshot`, `get_time`, `get_system_info`, `what_do_i_know_about`,
+`open_editor`, `open_url`, `remember_this`, `forget`.
 
 ---
 
@@ -244,7 +251,7 @@ Step by step:
 sequenceDiagram
     participant U as User
     participant LK as Voice agent
-    participant T as tools/email.py
+    participant T as /mcp (generated tools)
     participant E as ExecutionEngine
     participant G as ApprovalGate
     participant DB as SQLite
@@ -253,7 +260,7 @@ sequenceDiagram
 
     U->>LK: "email Priya…"
     LK->>T: send_email(to, subject, body)
-    T->>E: run_gated("openclaw_send_email", …)
+    T->>E: Runtime.run_tool("send_email", …)
     E->>DB: create task + step
     E->>E: step → RUNNING
     E->>G: tool requires approval?
@@ -271,17 +278,17 @@ sequenceDiagram
     E->>DB: task → SUCCEEDED
 ```
 
-The key difference from 5.1: the MCP tool calls `run_gated(...)` in
-`orion/tools/_gated.py` instead of hitting OpenClaw directly. That calls
-`Runtime.run_tool()` in `orion/core/runtime.py`, which builds a **one-step plan**
-and hands it to `engine.create_task_with_steps()` — which means **Brain B (the
-planner) is skipped** on this path. The voice LLM already decided; the engine
-just executes under the gate. `describe_outcome()` then turns the task into one
-spoken sentence, so a failure can never be reported as success.
+The path is identical to 5.1 up to the gate: every generated MCP tool calls
+`Runtime.run_tool()`, which builds a **one-step plan** and hands it to
+`engine.create_task_with_steps()`, so **Brain B (the planner) is skipped**. The
+voice LLM already decided; the engine executes under the gate. The only
+difference is the safety level: here the gate pauses the task.
+`describe_outcome()` in `orion/tools/_mcp.py` turns the task into one spoken
+sentence, so a failure can never be reported as success.
 
-**Tools on this path:** `send_email`, `send_whatsapp`, `send_telegram`,
-`send_slack`, `create_event`, `reschedule_event`, `write_file`, `run_command`,
-`run_code`.
+**Tools on this path** (`EXTERNAL_SIDE_EFFECT` / `DESTRUCTIVE`): `send_email`,
+`send_whatsapp`, `send_telegram`, `send_slack`, `create_event`,
+`reschedule_event`, `create_project`, `run_code`, `write_file`, `run_command`.
 
 > ⚠️ The voice agent's turn **ends** at "waiting for your approval". The same
 > engine later executes the approved step, but nothing notifies the voice
@@ -337,12 +344,10 @@ This is why `ExecutionEngine` can call `_plan()` without a try/except.
 
 ### 5.4 Memory path
 
-Memory has **two independent routes**, which is easy to trip over:
-
-| Caller | Route | Gated? |
-|---|---|---|
-| Voice (`remember_this`, `what_do_i_know_about`, `forget`) | `orion/tools/memory.py` → `MemoryService` | ❌ direct |
-| Planner (`memory_remember`, `memory_recall`, `memory_forget`) | registry → engine | ✅ via engine |
+Memory tools (`remember_this`, `what_do_i_know_about`, `forget`) are declared
+in `orion/tools/memory.py` like every other tool, so voice and the planner use
+the same three, through the engine. Their handlers call `MemoryService`
+directly rather than OpenClaw.
 
 `remember_this` first extracts a `{key, value}` pair from natural language:
 
@@ -385,21 +390,19 @@ Defined in `orion/core/models.py`:
 
 ### Current assignments
 
-| Tool | Level |
+Every voice tool's level is pinned in `EXPECTED_SAFETY` in
+`tests/test_tool_surface.py`, so adding a tool or changing a level is a
+reviewed change.
+
+| Level | Tools |
 |---|---|
-| `openclaw_send_email` | EXTERNAL_SIDE_EFFECT |
-| `openclaw_send_whatsapp` | EXTERNAL_SIDE_EFFECT |
-| `openclaw_send_telegram` | EXTERNAL_SIDE_EFFECT |
-| `openclaw_send_slack` | EXTERNAL_SIDE_EFFECT |
-| `openclaw_create_event` | EXTERNAL_SIDE_EFFECT |
-| `openclaw_reschedule_event` | EXTERNAL_SIDE_EFFECT |
-| `openclaw_write_file` | DESTRUCTIVE |
-| `openclaw_run_command` | DESTRUCTIVE |
-| `openclaw_run_code` | DESTRUCTIVE |
-| `memory_remember` / `memory_forget` | LOW_RISK |
-| `memory_recall` | READ_ONLY |
-| `echo_tool` | READ_ONLY |
-| `mock_send_email` | EXTERNAL_SIDE_EFFECT |
+| READ_ONLY | `check_email`, `summarize_inbox`, `get_events`, `read_file`, `search_files`, `search_web`, `take_screenshot`, `get_time`, `get_system_info`, `what_do_i_know_about` |
+| LOW_RISK | `open_editor`, `open_url`, `remember_this`, `forget` |
+| EXTERNAL_SIDE_EFFECT | `send_email`, `send_whatsapp`, `send_telegram`, `send_slack`, `create_event`, `reschedule_event` |
+| DESTRUCTIVE | `create_project` (installs dependencies, which runs third-party code), `run_code`, `write_file`, `run_command` |
+
+The engine also registers two internal fallbacks that are never exposed to
+voice: `echo_tool` (READ_ONLY) and `mock_send_email` (EXTERNAL_SIDE_EFFECT).
 
 ### Task state machine
 
@@ -579,7 +582,7 @@ make dev      # text agent against mock OpenClaw
 demands credentials.
 
 ```bash
-make test     # 51 tests
+make test     # 57 tests
 make lint     # ruff + mypy, both clean
 ```
 
@@ -599,15 +602,14 @@ you broke them.
    the dashboard, the scheduler and the dev CLI. Decide which brain owns
    planning; having both is the worst option.
 
-2. **One capability is still defined twice.** Gated tools are declared once in
-   `runtime.py` (`OPENCLAW_TOOLS`), but the MCP signature in
-   `orion/tools/` repeats the argument list. Generating the MCP surface from the
-   registry (item 3) would remove the second copy.
+2. ✅ **Resolved (#16).** A capability used to be defined two or three times
+   (MCP wrapper, registry entry, runtime wrapper). Each is now one
+   `ToolDefinition` in `orion/tools/`; the MCP surface is generated from it.
 
-3. **The read/write split is an unwritten rule.** Read-only tools bypass the
-   engine; write tools must route through it. Nothing enforces this — a new
-   contributor can silently add an ungated side-effectful tool. Generating the
-   MCP surface from the registry would make the gate structural.
+3. ✅ **Resolved (#16).** Read-only tools used to bypass the engine, and nothing
+   stopped a new tool from skipping the gate. Every MCP tool is now generated
+   from the registry and runs through the engine; tests check that each one
+   creates a task and that every tool's safety level matches a reviewed table.
 
 4. **Voice never learns the approval outcome.** The turn ends at "waiting for
    your approval"; the approved step runs later with no callback to the voice
@@ -637,9 +639,10 @@ you broke them.
 
 10. **Coverage is uneven.** The planner, LLM registry, runtime adapters,
     scheduler, rejection/failure paths, gate coverage and timestamp handling are
-    tested (`tests/test_engine.py`), as are the single-process app and a real
-    MCP-over-SSE round trip (`tests/test_app.py`). Most API routes and the task
-    SSE stream are not.
+    tested (`tests/test_engine.py`), as are the single-process app, a real
+    MCP-over-SSE round trip (`tests/test_app.py`) and the generated tool surface
+    (`tests/test_tool_surface.py`). Most API routes and the task SSE stream are
+    not.
 
 11. **The gate only governs what Orion *asks* for.** Every tool, including
     "read-only" ones like `search_web`, sends a natural-language instruction to
@@ -653,36 +656,41 @@ you broke them.
 
 ## 13. How to add things
 
-### Add a read-only tool
+### Add a tool
 
-1. Create or edit a module in `orion/tools/`:
+Every tool, read-only or not, is one declaration in `orion/tools/`. Pick the
+module for its domain (or create one and add it to `all_tools()` in
+`orion/tools/__init__.py`):
 
 ```python
-from bridge import get_openclaw_client
+class PlayMusicInput(BaseModel):
+    song: str = Field(description="Song title.")
+    artist: str = Field("", description="Artist (optional).")
 
-def register(mcp, runtime):
-    @mcp.tool()
-    async def play_music(song: str, artist: str = "") -> str:
-        """Play a song."""
-        task = f"Play '{song}'" + (f" by {artist}" if artist else "")
-        result = await get_openclaw_client().send_task(task)
-        return result["result"]
+TOOLS = [
+    openclaw_tool(
+        name="play_music",
+        description="Play a song.",
+        input_model=PlayMusicInput,
+        safety_level=ToolSafetyLevel.LOW_RISK,
+        render=lambda p: f"Play '{p.song}'" + (f" by {p.artist}" if p.artist else ""),
+        action="Playing the song",
+    ),
+]
 ```
 
-2. Register it in `orion/tools/__init__.py`.
-3. Add a mock response in `dev/mock_openclaw.py`.
-4. Restart Orion (`make up`).
+That's all the wiring. The voice LLM sees `play_music` with typed, described
+arguments; the planner can plan it; every call is a task in the audit log; and
+if you choose `EXTERNAL_SIDE_EFFECT` or `DESTRUCTIVE`, it waits for approval.
+For a tool that doesn't use OpenClaw, build a `ToolDefinition` with your own
+handler returning `{"message": "..."}` (see `get_time`).
 
-### Add a side-effectful tool — must be gated
+Then:
 
-1. In `orion/core/runtime.py`, add a Pydantic input model and one
-   `_OpenClawTool(name, description, InputModel, safety_level, render)` entry
-   to `OPENCLAW_TOOLS`, where `render` turns the payload into the OpenClaw
-   instruction.
-2. In the MCP module, have the tool `return await run_gated(runtime, name,
-   intent, action, **args)` from `orion/tools/_gated.py`. It handles approval
-   and the spoken outcome.
-3. Add the tool name to `GateCoverageTests` in `tests/test_engine.py`.
+1. Add it to `EXPECTED_SAFETY` in `tests/test_tool_surface.py`. The test fails
+   until you do, so the safety level is a deliberate choice.
+2. Add a mock response in `dev/mock_openclaw.py`.
+3. Restart Orion (`make up`).
 
 ### Add an LLM provider
 

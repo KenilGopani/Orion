@@ -194,39 +194,38 @@ Orion will automatically be able to use it — OpenClaw handles routing.
 
 ### Option B: Add a Dedicated Orion Tool (for better UX)
 
-If you want the LLM to have a purpose-built tool with typed parameters:
+If you want the LLM to have a purpose-built tool with typed parameters, declare it once. The voice tool, the planner's tool list and the approval gate all come from that declaration:
 
-1. Create a new file in `orion/tools/` (e.g. `music.py`)
-2. Follow the existing pattern:
-
-```python
-from bridge import get_openclaw_client
-
-def register(mcp, runtime):
-    @mcp.tool()
-    async def play_music(song: str, artist: str = "") -> str:
-        """Play a song."""
-        task = f"Play '{song}'"
-        if artist:
-            task += f" by {artist}"
-        result = await get_openclaw_client().send_task(task)
-        return result["result"]
-```
-
-`runtime` is the app's shared `Runtime`. A tool with side effects must call
-`run_gated(runtime, ...)` from `orion/tools/_gated.py` instead of OpenClaw directly.
-
-3. Register it in `orion/tools/__init__.py`:
+1. Declare it once in `orion/tools/` (a new module, or the one for its domain):
 
 ```python
-from orion.tools import music  # add import
+# orion/tools/music.py
+from pydantic import BaseModel, Field
 
-def register_all_tools(mcp, runtime):
-    for module in (email, messaging, ..., music):  # add your module here
-        module.register(mcp, runtime)
+from orion.core.models import ToolSafetyLevel
+from orion.tools._openclaw import openclaw_tool
+
+
+class PlayMusicInput(BaseModel):
+    song: str = Field(description="Song title.")
+    artist: str = Field("", description="Artist (optional).")
+
+
+TOOLS = [
+    openclaw_tool(
+        name="play_music",
+        description="Play a song.",
+        input_model=PlayMusicInput,
+        safety_level=ToolSafetyLevel.LOW_RISK,
+        render=lambda p: f"Play '{p.song}'" + (f" by {p.artist}" if p.artist else ""),
+        action="Playing the song",
+    ),
+]
 ```
 
-4. Restart Orion (`make up`). Done.
+2. If it's a new module, add it to `all_tools()` in `orion/tools/__init__.py`, and add the tool to `EXPECTED_SAFETY` in `tests/test_tool_surface.py`.
+
+3. Restart Orion (`make up`). Done.
 
 ---
 
