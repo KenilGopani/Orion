@@ -1,4 +1,4 @@
-.PHONY: dev mock-openclaw up voice test test-cov lint lint-fix \
+.PHONY: dev mock-openclaw up voice eval bench test test-cov lint lint-fix \
         clean setup seed dashboard dashboard-build dashboard-setup check-openclaw help
 
 # ── Development (no API keys needed) ──────────────────────────
@@ -30,6 +30,13 @@ dashboard: ## Start the dashboard dev server with hot reload (proxies /api to :8
 
 dashboard-build: ## Build the dashboard for production
 	cd dashboard && npm run build
+
+# ── Evals & benchmarks ─────────────────────────────────────────
+eval: ## Tool-selection accuracy for LLM_PROVIDER (evals/tool_selection.jsonl)
+	uv run orion eval
+
+bench: ## Per-stage STT / LLM / TTS latency and memory on this machine
+	uv run orion bench
 
 # ── Quality & testing ──────────────────────────────────────────
 test: ## Run all tests
