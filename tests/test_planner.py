@@ -1,40 +1,33 @@
 """
 Tests for the LLM-based task planner.
 
-All tests mock the HTTP layer so no real LLM calls are made.
-The planner is tested in isolation from the engine.
+The planner is tested in isolation from both the engine and the network:
+``orion.llm.complete_text`` is patched, so these tests cover plan parsing
+and fallback behaviour regardless of which provider is configured.
 """
 
 from __future__ import annotations
 
 import json
 import unittest
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, patch
 
 from tests.conftest import reset_test_db  # noqa: F401 — in-memory DB
 
-from orion.core.planner import LLMPlanner, TaskPlan, PlannedAction
 from orion.core.engine import default_registry
-from orion.core.registry import ToolRegistry
-
-
-def _make_llm_response(content: str) -> dict:
-    """Build a fake OpenAI-compatible chat completion response."""
-    return {
-        "choices": [
-            {
-                "index": 0,
-                "message": {"role": "assistant", "content": content},
-                "finish_reason": "stop",
-            }
-        ],
-        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-    }
+from orion.core.planner import LLMPlanner
+from orion.llm import LLMUnavailable
 
 
 def _make_plan_json(steps: list[dict], reasoning: str = "test") -> str:
     """Build a valid plan JSON string."""
     return json.dumps({"reasoning": reasoning, "steps": steps})
+
+
+def _patch_llm(*, returns: str | None = None, raises: Exception | None = None):
+    """Patch the planner's LLM call with a canned response or failure."""
+    mock = AsyncMock(side_effect=raises) if raises else AsyncMock(return_value=returns)
+    return patch("orion.core.planner.complete_text", mock)
 
 
 class PlannerTests(unittest.IsolatedAsyncioTestCase):
@@ -56,21 +49,9 @@ class PlannerTests(unittest.IsolatedAsyncioTestCase):
             ],
             reasoning="Simple greeting, just echo it back",
         )
-        mock_response = _make_llm_response(plan_json)
 
-        with patch("orion.core.planner.httpx.AsyncClient") as MockClient:
-            mock_client = AsyncMock()
-            mock_resp = MagicMock()
-            mock_resp.json.return_value = mock_response
-            mock_resp.raise_for_status = MagicMock()
-            mock_client.post.return_value = mock_resp
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            MockClient.return_value = mock_client
-
-            # Force non-dev mode by patching config
-            with patch("orion.core.planner._get_api_key", return_value="fake-key"):
-                plan = await self.planner.plan("hello")
+        with _patch_llm(returns=plan_json):
+            plan = await self.planner.plan("hello")
 
         self.assertEqual(len(plan.steps), 1)
         self.assertEqual(plan.steps[0].tool_name, "echo_tool")
@@ -100,44 +81,39 @@ class PlannerTests(unittest.IsolatedAsyncioTestCase):
             ],
             reasoning="Read first, then send reply",
         )
-        mock_response = _make_llm_response(plan_json)
 
-        with patch("orion.core.planner.httpx.AsyncClient") as MockClient:
-            mock_client = AsyncMock()
-            mock_resp = MagicMock()
-            mock_resp.json.return_value = mock_response
-            mock_resp.raise_for_status = MagicMock()
-            mock_client.post.return_value = mock_resp
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            MockClient.return_value = mock_client
-
-            with patch("orion.core.planner._get_api_key", return_value="fake-key"):
-                plan = await self.planner.plan("check my email and reply to Priya")
+        with _patch_llm(returns=plan_json):
+            plan = await self.planner.plan("check my email and reply to Priya")
 
         self.assertEqual(len(plan.steps), 2)
         self.assertEqual(plan.steps[0].tool_name, "echo_tool")
         self.assertEqual(plan.steps[1].tool_name, "mock_send_email")
         self.assertEqual(plan.steps[1].tool_args["to"], "priya@example.com")
 
+    async def test_markdown_fenced_response_is_parsed(self) -> None:
+        """A plan wrapped in ```json fences should still parse."""
+        plan_json = _make_plan_json(
+            steps=[
+                {
+                    "name": "echo",
+                    "description": "Echo it",
+                    "tool_name": "echo_tool",
+                    "tool_args": {"message": "fenced"},
+                }
+            ]
+        )
+
+        with _patch_llm(returns=f"```json\n{plan_json}\n```"):
+            plan = await self.planner.plan("fenced")
+
+        self.assertEqual(len(plan.steps), 1)
+        self.assertEqual(plan.steps[0].tool_args["message"], "fenced")
+
     async def test_unparseable_response_falls_back(self) -> None:
         """If the LLM returns garbage, the planner falls back to echo_tool."""
-        mock_response = _make_llm_response("This is not JSON at all, just random text.")
+        with _patch_llm(returns="This is not JSON at all, just random text."):
+            plan = await self.planner.plan("do something")
 
-        with patch("orion.core.planner.httpx.AsyncClient") as MockClient:
-            mock_client = AsyncMock()
-            mock_resp = MagicMock()
-            mock_resp.json.return_value = mock_response
-            mock_resp.raise_for_status = MagicMock()
-            mock_client.post.return_value = mock_resp
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            MockClient.return_value = mock_client
-
-            with patch("orion.core.planner._get_api_key", return_value="fake-key"):
-                plan = await self.planner.plan("do something")
-
-        # Should NOT crash — should fallback
         self.assertEqual(len(plan.steps), 1)
         self.assertEqual(plan.steps[0].tool_name, "echo_tool")
         self.assertIn("do something", plan.steps[0].tool_args["message"])
@@ -155,52 +131,34 @@ class PlannerTests(unittest.IsolatedAsyncioTestCase):
             ],
             reasoning="Tool doesn't exist",
         )
-        mock_response = _make_llm_response(plan_json)
 
-        with patch("orion.core.planner.httpx.AsyncClient") as MockClient:
-            mock_client = AsyncMock()
-            mock_resp = MagicMock()
-            mock_resp.json.return_value = mock_response
-            mock_resp.raise_for_status = MagicMock()
-            mock_client.post.return_value = mock_resp
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            MockClient.return_value = mock_client
+        with _patch_llm(returns=plan_json):
+            plan = await self.planner.plan("launch a rocket to mars")
 
-            with patch("orion.core.planner._get_api_key", return_value="fake-key"):
-                plan = await self.planner.plan("launch a rocket to mars")
-
-        # Should detect unknown tool and fall back
         self.assertEqual(len(plan.steps), 1)
         self.assertEqual(plan.steps[0].tool_name, "echo_tool")
 
-    async def test_no_api_key_falls_back(self) -> None:
-        """If no API key is configured, fall back gracefully."""
-        with patch("orion.core.planner._get_api_key", return_value=""):
-            # Ensure we're not in dev mode
-            with patch("orion.config.config") as mock_cfg:
-                mock_cfg.dev_mode = False
-                mock_cfg.mock_openclaw = False
-                plan = await self.planner.plan("test without key")
+    async def test_missing_credentials_falls_back(self) -> None:
+        """A provider with no API key degrades to the echo fallback."""
+        with _patch_llm(raises=LLMUnavailable("GOOGLE_API_KEY is not set")):
+            plan = await self.planner.plan("test without key")
 
         self.assertEqual(len(plan.steps), 1)
         self.assertEqual(plan.steps[0].tool_name, "echo_tool")
 
     async def test_network_error_falls_back(self) -> None:
         """If the LLM call fails with a network error, fall back gracefully."""
-        import httpx
+        with _patch_llm(raises=LLMUnavailable("connection refused")):
+            plan = await self.planner.plan("check my calendar")
 
-        with patch("orion.core.planner.httpx.AsyncClient") as MockClient:
-            mock_client = AsyncMock()
-            mock_client.post.side_effect = httpx.ConnectError("Connection refused")
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            MockClient.return_value = mock_client
+        self.assertEqual(len(plan.steps), 1)
+        self.assertEqual(plan.steps[0].tool_name, "echo_tool")
 
-            with patch("orion.core.planner._get_api_key", return_value="fake-key"):
-                plan = await self.planner.plan("check my calendar")
+    async def test_unknown_provider_falls_back(self) -> None:
+        """A bogus provider name must not crash the engine."""
+        planner = LLMPlanner(registry=self.registry, llm_provider="not-a-provider")
+        plan = await planner.plan("anything")
 
-        # Should NOT crash
         self.assertEqual(len(plan.steps), 1)
         self.assertEqual(plan.steps[0].tool_name, "echo_tool")
 

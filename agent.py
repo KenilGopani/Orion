@@ -15,7 +15,6 @@ Run:
 
 from __future__ import annotations
 
-import os
 import sys
 import logging
 
@@ -35,6 +34,7 @@ from livekit.plugins import (
 
 from orion.persona import get_system_prompt
 from orion.config import config
+from orion.llm import resolve
 
 # ---------------------------------------------------------------------------
 # CONFIG
@@ -45,9 +45,6 @@ load_dotenv()
 STT_PROVIDER = config.stt_provider
 LLM_PROVIDER = config.llm_provider
 TTS_PROVIDER = config.tts_provider
-
-GEMINI_LLM_MODEL = "gemini-2.5-flash"
-OPENAI_LLM_MODEL = "gpt-4o"
 
 OPENAI_TTS_MODEL = "tts-1"
 OPENAI_TTS_VOICE = "onyx"  # Deep, composed male voice
@@ -84,7 +81,20 @@ def _mcp_server_url() -> str:
 # ---------------------------------------------------------------------------
 
 def _build_stt():
-    if STT_PROVIDER == "sarvam":
+    if STT_PROVIDER == "whisper_local":
+        logger.info(
+            "STT → local Whisper (%s @ %s)",
+            config.whisper_local_model,
+            config.whisper_local_url,
+        )
+        # Any OpenAI-compatible local Whisper server (whisper.cpp, faster-whisper-server).
+        # Non-streaming: LiveKit segments audio with VAD and calls recognize() per turn.
+        return lk_openai.STT(
+            model=config.whisper_local_model,
+            base_url=config.whisper_local_url,
+            api_key="local",  # ignored by local servers, but the client requires a value
+        )
+    elif STT_PROVIDER == "sarvam":
         logger.info("STT → Sarvam Saaras v3")
         return sarvam.STT(
             language="unknown",
@@ -112,28 +122,55 @@ def _build_stt():
 
 
 def _build_llm():
-    if LLM_PROVIDER == "openai":
-        logger.info("LLM → OpenAI (%s)", OPENAI_LLM_MODEL)
-        return lk_openai.LLM(model=OPENAI_LLM_MODEL)
-    elif LLM_PROVIDER == "gemini":
-        logger.info("LLM → Google Gemini (%s)", GEMINI_LLM_MODEL)
-        return lk_google.LLM(
-            model=GEMINI_LLM_MODEL,
-            api_key=config.google_api_key,
-        )
-    elif LLM_PROVIDER == "groq":
-        logger.info("LLM → Groq Llama 3.3 (llama-3.3-70b-versatile)")
-        return lk_openai.LLM(
-            model="llama-3.3-70b-versatile",
-            base_url="https://api.groq.com/openai/v1",
-            api_key=config.groq_api_key,
-        )
-    else:
-        raise ValueError(f"Unknown LLM_PROVIDER: {LLM_PROVIDER!r}")
+    """Build the voice-pipeline LLM from the shared provider registry.
+
+    Each provider declares which LiveKit plugin serves it, so adding a
+    provider means editing ``orion/llm/providers.py`` — not this function.
+    """
+    spec = resolve(LLM_PROVIDER)
+    logger.info("LLM → %s (%s)", spec.name, spec.model)
+
+    if spec.livekit_plugin == "google":
+        return lk_google.LLM(model=spec.model, api_key=spec.api_key())
+
+    if spec.livekit_plugin == "anthropic":
+        # Native Anthropic plugin — not an OpenAI-compatibility shim.
+        try:
+            from livekit.plugins import anthropic as lk_anthropic
+        except ImportError as exc:
+            raise RuntimeError(
+                "LLM_PROVIDER=claude requires the Anthropic plugin. "
+                "Install it with: uv add livekit-plugins-anthropic"
+            ) from exc
+        return lk_anthropic.LLM(model=spec.model, api_key=spec.api_key())
+
+    # Everything else is OpenAI-compatible — same plugin, different base_url.
+    kwargs: dict = {"model": spec.model}
+    if spec.base_url:
+        kwargs["base_url"] = spec.base_url
+    # Local servers ignore the key but the client requires a non-empty value.
+    kwargs["api_key"] = spec.api_key() or "local"
+    return lk_openai.LLM(**kwargs)
 
 
 def _build_tts():
-    if TTS_PROVIDER == "sarvam":
+    if TTS_PROVIDER == "kokoro":
+        logger.info(
+            "TTS → local Kokoro (%s @ %s)",
+            config.kokoro_voice,
+            config.kokoro_url,
+        )
+        # Kokoro via an OpenAI-compatible server (e.g. kokoro-fastapi).
+        # Non-streaming, but LiveKit auto-wraps it in a tts.StreamAdapter with a
+        # sentence tokenizer, so playback starts after the first sentence.
+        return lk_openai.TTS(
+            model="kokoro",
+            voice=config.kokoro_voice,
+            base_url=config.kokoro_url,
+            api_key="local",  # ignored by local servers, but the client requires a value
+            speed=TTS_SPEED,
+        )
+    elif TTS_PROVIDER == "sarvam":
         logger.info("TTS → Sarvam Bulbul v3")
         return sarvam.TTS(
             target_language_code=SARVAM_TTS_LANGUAGE,
@@ -187,7 +224,7 @@ class OrionAgent(Agent):
 
     async def on_enter(self) -> None:
         """Greet the user based on the current time of day."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         hour = datetime.now().hour  # Local time
 
@@ -226,9 +263,13 @@ def _turn_detection() -> str:
 
 
 def _endpointing_delay() -> float:
-    return {"sarvam": 0.07, "whisper": 0.3, "groq": 0.3, "deepgram": 0.2}.get(
-        STT_PROVIDER, 0.1
-    )
+    return {
+        "sarvam": 0.07,
+        "whisper": 0.3,
+        "whisper_local": 0.3,
+        "groq": 0.3,
+        "deepgram": 0.2,
+    }.get(STT_PROVIDER, 0.1)
 
 
 async def entrypoint(ctx: JobContext) -> None:

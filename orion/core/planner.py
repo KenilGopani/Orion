@@ -8,7 +8,6 @@ if the LLM response cannot be parsed, so the engine never crashes.
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from typing import Any
@@ -17,6 +16,7 @@ import httpx
 from pydantic import BaseModel, Field
 
 from orion.core.registry import ToolRegistry
+from orion.llm import LLMUnavailable, complete_text
 
 logger = logging.getLogger("orion.planner")
 
@@ -75,33 +75,6 @@ Respond with ONLY the JSON object. No markdown fences, no explanation outside th
 """
 
 
-# ── Provider endpoints ────────────────────────────────────────────────────────
-
-_PROVIDER_URLS: dict[str, str] = {
-    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-    "openai": "https://api.openai.com/v1/chat/completions",
-    "groq": "https://api.groq.com/openai/v1/chat/completions",
-}
-
-_PROVIDER_MODELS: dict[str, str] = {
-    "gemini": "gemini-2.0-flash",
-    "openai": "gpt-4o-mini",
-    "groq": "llama-3.1-70b-versatile",
-}
-
-
-def _get_api_key(provider: str) -> str:
-    """Retrieve the API key for the given provider from config."""
-    from orion.config import config
-
-    key_map = {
-        "gemini": config.google_api_key,
-        "openai": config.openai_api_key,
-        "groq": config.groq_api_key,
-    }
-    return key_map.get(provider, "")
-
-
 # ── Planner ───────────────────────────────────────────────────────────────────
 
 class LLMPlanner:
@@ -151,55 +124,25 @@ class LLMPlanner:
         if config.dev_mode and config.mock_openclaw:
             return await self._plan_via_openclaw(user_intent, config.openclaw_url)
 
-        # Otherwise, call the real LLM provider
-        api_key = _get_api_key(self.llm_provider)
-        if not api_key:
-            logger.warning(
-                "No API key for LLM provider '%s' — falling back to echo",
-                self.llm_provider,
-            )
-            return self._fallback_plan(user_intent)
+        return await self._plan_via_llm(user_intent)
 
-        return await self._plan_via_llm(user_intent, api_key)
-
-    async def _plan_via_llm(self, user_intent: str, api_key: str) -> TaskPlan:
-        """Call a cloud LLM provider for planning."""
-        url = _PROVIDER_URLS.get(self.llm_provider)
-        model = _PROVIDER_MODELS.get(self.llm_provider)
-
-        if not url or not model:
-            logger.warning("Unknown LLM provider '%s'", self.llm_provider)
-            return self._fallback_plan(user_intent)
-
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-        }
-        payload = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": self._build_system_prompt()},
-                {"role": "user", "content": user_intent},
-            ],
-            "temperature": 0.1,  # Low temperature for deterministic planning
-        }
-
+    async def _plan_via_llm(self, user_intent: str) -> TaskPlan:
+        """Plan via the configured provider — cloud or local, any transport."""
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(url, json=payload, headers=headers)
-                resp.raise_for_status()
-                data = resp.json()
-
-            raw = (
-                data.get("choices", [{}])[0]
-                .get("message", {})
-                .get("content", "")
+            raw = await complete_text(
+                system=self._build_system_prompt(),
+                user=user_intent,
+                provider=self.llm_provider,
+                temperature=0.1,  # Low temperature for deterministic planning
             )
-            return self._parse_plan(raw, user_intent)
-
-        except Exception as exc:
-            logger.warning("LLM planner call failed: %s — falling back to echo", exc)
+        except LLMUnavailable as exc:
+            logger.warning("Planner LLM unavailable: %s — falling back to echo", exc)
             return self._fallback_plan(user_intent)
+        except ValueError as exc:  # unknown provider name
+            logger.warning("%s — falling back to echo", exc)
+            return self._fallback_plan(user_intent)
+
+        return self._parse_plan(raw, user_intent)
 
     async def _plan_via_openclaw(self, user_intent: str, base_url: str) -> TaskPlan:
         """Route planning through the local mock/real OpenClaw server."""

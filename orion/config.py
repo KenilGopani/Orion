@@ -45,14 +45,33 @@ class Config:
     )
 
     # ── Provider switches ─────────────────────────────────────────
-    stt_provider: str = field(default_factory=lambda: os.getenv("STT_PROVIDER", "groq"))
+    # Defaults are the free, locally-runnable providers. They need no API key,
+    # but do require the corresponding local server to be running (see below).
+    stt_provider: str = field(default_factory=lambda: os.getenv("STT_PROVIDER", "whisper_local"))
     llm_provider: str = field(default_factory=lambda: os.getenv("LLM_PROVIDER", "gemini"))
-    tts_provider: str = field(default_factory=lambda: os.getenv("TTS_PROVIDER", "elevenlabs"))
+    tts_provider: str = field(default_factory=lambda: os.getenv("TTS_PROVIDER", "kokoro"))
+
+    # ── Local (free) speech servers ───────────────────────────────
+    # Both speak the OpenAI-compatible API, so they reuse the openai plugin
+    # and need no extra Python dependencies.
+    whisper_local_url: str = field(
+        default_factory=lambda: os.getenv("WHISPER_LOCAL_URL", "http://127.0.0.1:8080/v1")
+    )
+    whisper_local_model: str = field(
+        default_factory=lambda: os.getenv("WHISPER_LOCAL_MODEL", "whisper-large-v3-turbo")
+    )
+    kokoro_url: str = field(
+        default_factory=lambda: os.getenv("KOKORO_URL", "http://127.0.0.1:8880/v1")
+    )
+    kokoro_voice: str = field(
+        default_factory=lambda: os.getenv("KOKORO_VOICE", "am_michael")
+    )
 
     # ── API keys ──────────────────────────────────────────────────
     openai_api_key: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
     google_api_key: str = field(default_factory=lambda: os.getenv("GOOGLE_API_KEY", ""))
     groq_api_key: str = field(default_factory=lambda: os.getenv("GROQ_API_KEY", ""))
+    anthropic_api_key: str = field(default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", ""))
     elevenlabs_api_key: str = field(default_factory=lambda: os.getenv("ELEVEN_API_KEY", ""))
     elevenlabs_voice_id: str = field(
         default_factory=lambda: os.getenv("ELEVENLABS_VOICE_ID", "pNInz6obpgDQGcFmaJgB")
@@ -93,12 +112,6 @@ class Config:
         "deepgram": ("deepgram_api_key", "DEEPGRAM_API_KEY"),
     }, repr=False)
 
-    _LLM_KEYS: dict[str, tuple[str, str]] = field(default_factory=lambda: {
-        "gemini": ("google_api_key", "GOOGLE_API_KEY"),
-        "openai": ("openai_api_key", "OPENAI_API_KEY"),
-        "groq": ("groq_api_key", "GROQ_API_KEY"),
-    }, repr=False)
-
     _TTS_KEYS: dict[str, tuple[str, str]] = field(default_factory=lambda: {
         "elevenlabs": ("elevenlabs_api_key", "ELEVEN_API_KEY"),
         "openai": ("openai_api_key", "OPENAI_API_KEY"),
@@ -133,12 +146,20 @@ class Config:
                 if not getattr(self, attr):
                     errors.append(f"  Missing: {env} (required for STT provider '{self.stt_provider}')")
 
-            # Check that the selected LLM provider has its API key set
-            llm_req = self._LLM_KEYS.get(self.llm_provider)
-            if llm_req:
-                attr, env = llm_req
-                if not getattr(self, attr):
-                    errors.append(f"  Missing: {env} (required for LLM provider '{self.llm_provider}')")
+            # LLM provider requirements come from the shared registry, so this
+            # stays correct as providers are added. Local providers need no key.
+            from orion.llm import resolve
+
+            try:
+                llm_spec = resolve(self.llm_provider)
+            except ValueError as exc:
+                errors.append(f"  {exc}")
+            else:
+                if llm_spec.requires_key and not llm_spec.api_key():
+                    errors.append(
+                        f"  Missing: {llm_spec.api_key_env} "
+                        f"(required for LLM provider '{llm_spec.name}')"
+                    )
 
             # Check that the selected TTS provider has its API key set
             tts_req = self._TTS_KEYS.get(self.tts_provider)
