@@ -87,7 +87,8 @@ def _heuristic_extract(fact: str) -> tuple[str, str]:
     - "X is Y"
     - "remember that X"
     """
-    lower = fact.lower().strip()
+    # Drop a leading "remember (that)" / "please remember" so it isn't part of the key.
+    lower = re.sub(r"^(?:please\s+)?remember(?:\s+that)?\s+", "", fact.lower().strip())
 
     # "my X is Y" pattern
     match = re.match(r"(?:my\s+)?(.+?)\s+is\s+(.+)", lower)

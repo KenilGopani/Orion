@@ -91,6 +91,26 @@ class FailureTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(task.id, spoken)
 
 
+class WordingTests(unittest.IsolatedAsyncioTestCase):
+    """Text users and the dashboard see must not leak Python internals."""
+
+    async def asyncSetUp(self) -> None:
+        reset_test_db()
+
+    async def test_approval_reason_names_the_level_plainly(self) -> None:
+        with patch("orion.tools._openclaw.get_openclaw_client", return_value=_mock_openclaw()):
+            task = await run_tool("send_email", "email", to="a@b.c", subject="s", body="b")
+        reason = store.list_approval_requests(task.id)[0].reason
+        self.assertEqual(reason, "Tool send_email has safety level EXTERNAL_SIDE_EFFECT")
+
+    def test_remembered_facts_drop_the_remember_prefix(self) -> None:
+        from orion.tools.memory import _heuristic_extract
+
+        self.assertEqual(_heuristic_extract("remember that my standup is at 10am"), ("standup", "at 10am"))
+        self.assertEqual(_heuristic_extract("Please remember my gym is Equinox")[0], "gym")
+        self.assertEqual(_heuristic_extract("my car is blue"), ("car", "blue"))
+
+
 class TimestampTests(unittest.TestCase):
     def setUp(self) -> None:
         reset_test_db()

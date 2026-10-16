@@ -59,11 +59,42 @@ async def _check_health() -> None:
     print()
 
 
+def _ensure_mock_openclaw() -> None:
+    """Start the mock OpenClaw in the background if it isn't already running.
+
+    Without it the planner can't reach "OpenClaw" and every request falls
+    back to echoing the input, so `make dev` would look like an echo bot.
+    """
+    import socket
+    import threading
+    import time
+    from urllib.parse import urlparse
+
+    import uvicorn
+
+    target = urlparse(config.openclaw_url)
+    host, port = target.hostname or "127.0.0.1", target.port or 18789
+    with socket.socket() as sock:
+        if sock.connect_ex((host, port)) == 0:
+            return  # a real or mock OpenClaw is already there
+
+    from dev.mock_openclaw import app as mock_app
+
+    server = uvicorn.Server(uvicorn.Config(mock_app, host=host, port=port, log_level="warning"))
+    threading.Thread(target=server.run, daemon=True).start()
+    deadline = time.monotonic() + 10
+    while not server.started and time.monotonic() < deadline:
+        time.sleep(0.05)
+    print(f"  ⚙  Started mock OpenClaw on {host}:{port}\n")
+
+
 async def main() -> None:
     print(BANNER)
 
     if config.dev_mode:
         print("  ⚡ Running in DEV_MODE\n")
+    if config.mock_openclaw:
+        _ensure_mock_openclaw()
 
     while True:
         try:
@@ -94,8 +125,8 @@ async def main() -> None:
                     "PENDING": "○",
                     "PLANNING": "◐",
                     "CANCELLED": "⊘",
-                }.get(t.status, "?")
-                print(f"  {status_icon} [{t.status:20s}] {t.user_intent}")
+                }.get(t.status.value, "?")
+                print(f"  {status_icon} [{t.status.value:20s}] {t.user_intent}")
             print()
             continue
 
@@ -177,6 +208,7 @@ async def main() -> None:
                     except Exception as exc:
                         print(f"Orion: Approval failed: {exc}")
                 else:
+                    engine.reject_task(task.id, rejected_by="dev_user")
                     print("Orion: Understood, action cancelled, sir.")
         else:
             print(f"Orion: Task ended with status {task.status}.")
