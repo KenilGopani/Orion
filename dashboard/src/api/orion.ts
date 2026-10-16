@@ -77,6 +77,12 @@ export interface ConversationMessage {
   timestamp: string;
 }
 
+export interface VoiceToken {
+  url: string;
+  token: string;
+  room: string;
+}
+
 export interface SchedulerJob {
   id: string;
   name: string;
@@ -141,6 +147,9 @@ export const orionApi = {
 
   getConversations: (): Promise<ConversationMessage[]> =>
     fetch(`${API_BASE}/conversations`).then(json<ConversationMessage[]>),
+
+  getVoiceToken: (): Promise<VoiceToken> =>
+    fetch(`${API_BASE}/voice/token`).then(json<VoiceToken>),
 
   getSchedulerJobs: (): Promise<SchedulerJob[]> =>
     fetch(`${API_BASE}/scheduler/jobs`).then(json<SchedulerJob[]>),

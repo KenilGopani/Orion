@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import secrets
+from datetime import timedelta
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
@@ -89,6 +91,30 @@ def build_routes(runtime: Runtime, api_token: str) -> APIRouter:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # ── Voice ─────────────────────────────────────────────────────
+
+    @router.get("/voice/token")
+    def voice_token():
+        """A short-lived LiveKit token for the dashboard's Talk panel.
+
+        Lets the browser join the voice room directly, against LiveKit Cloud
+        or the local server in offline mode, without a hosted playground.
+        """
+        cfg = runtime.config
+        if not (cfg.livekit_url and cfg.livekit_api_key and cfg.livekit_api_secret):
+            raise HTTPException(status_code=503, detail="LiveKit isn't configured (LIVEKIT_URL / key / secret)")
+        from livekit import api
+
+        token = (
+            api.AccessToken(cfg.livekit_api_key, cfg.livekit_api_secret)
+            .with_identity(f"orion-user-{secrets.token_hex(4)}")
+            .with_name("You")
+            .with_ttl(timedelta(hours=1))
+            .with_grants(api.VideoGrants(room_join=True, room=cfg.voice_room))
+            .to_jwt()
+        )
+        return {"url": cfg.livekit_url, "token": token, "room": cfg.voice_room}
 
     # ── Events & Streaming ────────────────────────────────────────
 
